@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS ai_settings (
 INSERT OR IGNORE INTO users (id, email, password_hash, salt, name, role) VALUES (
   'admin-001',
   'admin@siloforge.com',
-  'a3d2a8f1e9b4c7d6e5f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2',
+  'f49a01f2649880e644a71f56fb2989e4b43fdd599277510900dbc9945496189c',
   'siloforge2024',
   'Admin',
   'admin'

@@ -8,7 +8,7 @@ import VisualTree from './VisualTree';
 import { Sparkles, Plus, X, ArrowLeft, ArrowRight, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 
 export default function Step2SiloStructure() {
-  const { project, silos, setSilos, addSilo, removeSilo, updateSilo, setStep } = useStore();
+  const { project, silos, setSilos, addSilo, removeSilo, updateSilo, setStep, token } = useStore();
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'edit' | 'tree'>('edit');
@@ -26,16 +26,22 @@ export default function Step2SiloStructure() {
     setGenerating(true);
     setError('');
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
       const res = await fetch('/api/ai/generate-silos', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           niche: project.niche,
           keywords: project.seedKeywords,
           language: project.language,
         }),
       });
-      if (!res.ok) throw new Error('Failed to generate silos');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to generate silos');
+      }
       const data = await res.json();
 
       if (data.silos && Array.isArray(data.silos)) {
@@ -52,7 +58,7 @@ export default function Step2SiloStructure() {
         setError('AI returned unexpected format. Please try again.');
       }
     } catch (err) {
-      setError('Failed to generate silos. Please try again.');
+      setError(err instanceof Error ? err.message : 'Failed to generate silos. Please try again.');
     } finally {
       setGenerating(false);
     }

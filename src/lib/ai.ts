@@ -1,11 +1,9 @@
 // AI abstraction supporting multiple providers: OpenAI, Google Gemini, Anthropic Claude, DeepSeek
-// Falls back to z-ai-web-dev-sdk if no user setting is configured
+// Uses API keys stored in user settings (D1 database)
 
-import ZAI from 'z-ai-web-dev-sdk';
 import { getActiveAISetting } from '@/lib/db';
 import { getUserFromRequest } from '@/lib/auth';
 import { NextRequest } from 'next/server';
-import { AI_PROVIDERS } from '@/lib/ai-providers';
 
 // Re-export for convenience
 export { AI_PROVIDERS } from '@/lib/ai-providers';
@@ -21,7 +19,10 @@ async function callOpenAI(apiKey: string, model: string, messages: ChatMessage[]
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify({ model, messages, temperature: 0.7 }),
   });
-  if (!res.ok) throw new Error(`OpenAI API error: ${res.status}`);
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`OpenAI API error (${res.status}): ${errBody.slice(0, 200)}`);
+  }
   const data = await res.json();
   return data.choices?.[0]?.message?.content || '';
 }
@@ -37,7 +38,10 @@ async function callGemini(apiKey: string, model: string, messages: ChatMessage[]
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents, generationConfig: { temperature: 0.7 } }),
   });
-  if (!res.ok) throw new Error(`Gemini API error: ${res.status}`);
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Gemini API error (${res.status}): ${errBody.slice(0, 200)}`);
+  }
   const data = await res.json();
   return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
@@ -61,60 +65,61 @@ async function callClaude(apiKey: string, model: string, messages: ChatMessage[]
       messages: chatMsgs,
     }),
   });
-  if (!res.ok) throw new Error(`Claude API error: ${res.status}`);
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Claude API error (${res.status}): ${errBody.slice(0, 200)}`);
+  }
   const data = await res.json();
   return data.content?.[0]?.text || '';
 }
 
 async function callDeepSeek(apiKey: string, model: string, messages: ChatMessage[]): Promise<string> {
-  const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+  const res = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify({ model, messages, temperature: 0.7 }),
   });
-  if (!res.ok) throw new Error(`DeepSeek API error: ${res.status}`);
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`DeepSeek API error (${res.status}): ${errBody.slice(0, 200)}`);
+  }
   const data = await res.json();
-  return data.choices?.[0]?.message?.content || '';
+  // DeepSeek reasoner model may put output in reasoning_content
+  const content = data.choices?.[0]?.message?.content || '';
+  const reasoning = data.choices?.[0]?.message?.reasoning_content || '';
+  return content || reasoning;
 }
 
-async function callZAI(messages: ChatMessage[]): Promise<string> {
-  const zai = await ZAI.create();
-  const completion = await zai.chat.completions.create({
-    messages,
-    temperature: 0.7,
-  });
-  return completion.choices?.[0]?.message?.content || '';
-}
-
-// Main AI call function - resolves provider from user settings or falls back to z-ai
+// Main AI call function - resolves provider from user settings
 export async function callAI(messages: ChatMessage[], req?: NextRequest): Promise<string> {
-  // Try to get user's active AI setting
+  // Try to get user's active AI setting from the request's auth token
   if (req) {
-    try {
-      const user = await getUserFromRequest(req);
-      if (user) {
-        const setting = await getActiveAISetting(user.userId);
-        if (setting && setting.api_key) {
-          const { provider, api_key, model } = setting;
-          switch (provider) {
-            case 'openai':
-              return await callOpenAI(api_key, model || 'gpt-4o-mini', messages);
-            case 'gemini':
-              return await callGemini(api_key, model || 'gemini-2.0-flash', messages);
-            case 'claude':
-              return await callClaude(api_key, model || 'claude-sonnet-4-20250514', messages);
-            case 'deepseek':
-              return await callDeepSeek(api_key, model || 'deepseek-chat', messages);
-          }
+    const user = await getUserFromRequest(req);
+    if (user) {
+      const setting = await getActiveAISetting(user.userId);
+      if (setting && setting.api_key) {
+        const { provider, api_key, model } = setting;
+        switch (provider) {
+          case 'openai':
+            return await callOpenAI(api_key, model || 'gpt-4o-mini', messages);
+          case 'gemini':
+            return await callGemini(api_key, model || 'gemini-2.0-flash', messages);
+          case 'claude':
+            return await callClaude(api_key, model || 'claude-sonnet-4-20250514', messages);
+          case 'deepseek':
+            return await callDeepSeek(api_key, model || 'deepseek-chat', messages);
+          default:
+            throw new Error(`Unknown AI provider: ${provider}. Please check your AI settings.`);
         }
+      } else {
+        throw new Error('No active AI provider configured. Please add an API key in Admin > AI Settings.');
       }
-    } catch {
-      // Fall through to z-ai
+    } else {
+      throw new Error('Not authenticated. Please log in to use AI features.');
     }
   }
 
-  // Fallback to z-ai-web-dev-sdk (local dev only)
-  return await callZAI(messages);
+  throw new Error('No request context available. Cannot determine AI provider.');
 }
 
 function parseJSON<T>(text: string, fallback: T): T {

@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ silos });
   } catch (error) {
     console.error('Generate silos error:', error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

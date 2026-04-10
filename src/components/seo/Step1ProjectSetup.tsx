@@ -7,7 +7,7 @@ import TagInput from './TagInput';
 import { Globe, Tag, FileText, Languages, ArrowRight, Sparkles } from 'lucide-react';
 
 export default function Step1ProjectSetup() {
-  const { project, setProject, setStep, silos, pages, setSavedProjectId } = useStore();
+  const { project, setProject, setStep, silos, pages, setSavedProjectId, token } = useStore();
   const [name, setName] = useState(project?.name || '');
   const [domain, setDomain] = useState(project?.domain || '');
   const [language, setLanguage] = useState(project?.language || 'en');
@@ -22,23 +22,29 @@ export default function Step1ProjectSetup() {
     setExpanding(true);
     setError('');
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
       const res = await fetch('/api/ai/expand-keywords', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           seedKeywords: seedKeywords.length > 0 ? seedKeywords : [niche],
           niche,
           language,
         }),
       });
-      if (!res.ok) throw new Error('AI expansion failed');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'AI expansion failed');
+      }
       const data = await res.json();
       if (data.keywords) {
         const newKeywords = [...new Set([...seedKeywords, ...data.keywords])];
         setSeedKeywords(newKeywords);
       }
     } catch (err) {
-      setError('Failed to expand keywords. Please try again.');
+      setError(err instanceof Error ? err.message : 'Failed to expand keywords. Please try again.');
     } finally {
       setExpanding(false);
     }

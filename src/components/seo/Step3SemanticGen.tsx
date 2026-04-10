@@ -8,7 +8,7 @@ import VisualTree from './VisualTree';
 import { Sparkles, ArrowLeft, ArrowRight, Loader2, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 
 export default function Step3SemanticGen() {
-  const { project, silos, pages, setPages, setStep } = useStore();
+  const { project, silos, pages, setPages, setStep, token } = useStore();
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [expandedSilos, setExpandedSilos] = useState<Record<string, boolean>>({});
@@ -30,9 +30,12 @@ export default function Step3SemanticGen() {
         keywords: s.keywords || [],
       }));
 
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
       const res = await fetch('/api/ai/generate-pages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           silos: siloData,
           niche: project.niche,
@@ -40,7 +43,10 @@ export default function Step3SemanticGen() {
         }),
       });
 
-      if (!res.ok) throw new Error('Failed to generate pages');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to generate pages');
+      }
       const data = await res.json();
 
       if (data.pagesBySilo) {
@@ -89,7 +95,7 @@ export default function Step3SemanticGen() {
         setError('AI returned unexpected format. Please try again.');
       }
     } catch (err) {
-      setError('Failed to generate pages. Please try again.');
+      setError(err instanceof Error ? err.message : 'Failed to generate pages. Please try again.');
     } finally {
       setGenerating(false);
     }
