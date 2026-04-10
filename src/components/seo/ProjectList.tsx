@@ -15,7 +15,7 @@ interface SavedProject {
 }
 
 export default function ProjectList() {
-  const { setProject, setSilos, setPages, setStep, setSavedProjectId, resetStore } = useStore();
+  const { setProject, setSilos, setPages, setStep, setSavedProjectId, resetStore, token } = useStore();
   const [projects, setProjects] = useState<SavedProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -26,7 +26,9 @@ export default function ProjectList() {
 
   const loadProjects = async () => {
     try {
-      const res = await fetch('/api/projects');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/projects', { headers });
       const data = await res.json();
       setProjects(data);
     } catch (err) {
@@ -38,12 +40,15 @@ export default function ProjectList() {
 
   const handleLoadProject = async (project: SavedProject) => {
     try {
+      const loadHeaders: Record<string, string> = {};
+      if (token) loadHeaders['Authorization'] = `Bearer ${token}`;
+
       // Load silos
-      const silosRes = await fetch(`/api/silos?project_id=${project.id}`);
+      const silosRes = await fetch(`/api/silos?project_id=${project.id}`, { headers: loadHeaders });
       const silosData = await silosRes.json();
 
       // Load pages
-      const pagesRes = await fetch(`/api/pages?project_id=${project.id}`);
+      const pagesRes = await fetch(`/api/pages?project_id=${project.id}`, { headers: loadHeaders });
       const pagesData = await pagesRes.json();
 
       setProject({
@@ -88,7 +93,9 @@ export default function ProjectList() {
   const handleDeleteProject = async (id: string) => {
     if (deleteConfirm === id) {
       try {
-        await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+        const delHeaders: Record<string, string> = {};
+        if (token) delHeaders['Authorization'] = `Bearer ${token}`;
+        await fetch(`/api/projects/${id}`, { method: 'DELETE', headers: delHeaders });
         setProjects(projects.filter((p) => p.id !== id));
         resetStore();
         setDeleteConfirm(null);

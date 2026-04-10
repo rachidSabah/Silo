@@ -28,7 +28,7 @@ interface SavedProject {
 }
 
 export default function Step5ExportSave() {
-  const { project, silos, pages, setStep, setProject, setSilos, setPages, setSavedProjectId, savedProjectId, resetStore } = useStore();
+  const { project, silos, pages, setStep, setProject, setSilos, setPages, setSavedProjectId, savedProjectId, resetStore, token } = useStore();
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -45,7 +45,9 @@ export default function Step5ExportSave() {
   const loadProjects = useCallback(async () => {
     setIsLoadingProjects(true);
     try {
-      const res = await fetch('/api/projects');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/projects', { headers });
       const data = await res.json();
       setSavedProjects(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -53,7 +55,7 @@ export default function Step5ExportSave() {
     } finally {
       setIsLoadingProjects(false);
     }
-  }, []);
+  }, [token]);
 
   // Load saved projects on mount
   useEffect(() => {
@@ -107,9 +109,12 @@ export default function Step5ExportSave() {
     setSaveMessage(null);
 
     try {
+      const saveHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) saveHeaders['Authorization'] = `Bearer ${token}`;
+
       const projectRes = await fetch('/api/projects', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: saveHeaders,
         body: JSON.stringify({
           id: project.id,
           name: project.name,
@@ -127,7 +132,7 @@ export default function Step5ExportSave() {
       for (const silo of silos) {
         await fetch('/api/silos', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: saveHeaders,
           body: JSON.stringify({
             id: silo.id,
             project_id: project.id,
@@ -140,7 +145,7 @@ export default function Step5ExportSave() {
       for (const page of pages) {
         await fetch('/api/pages', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: saveHeaders,
           body: JSON.stringify({
             id: page.id,
             project_id: project.id,
@@ -170,13 +175,16 @@ export default function Step5ExportSave() {
   // Load project from DB
   const handleLoadProject = async (projectId: string) => {
     try {
-      const projectRes = await fetch(`/api/projects/${projectId}`);
+      const loadHeaders: Record<string, string> = {};
+      if (token) loadHeaders['Authorization'] = `Bearer ${token}`;
+
+      const projectRes = await fetch(`/api/projects/${projectId}`, { headers: loadHeaders });
       const proj = await projectRes.json();
 
-      const silosRes = await fetch(`/api/silos?project_id=${projectId}`);
+      const silosRes = await fetch(`/api/silos?project_id=${projectId}`, { headers: loadHeaders });
       const dbSilos = await silosRes.json();
 
-      const pagesRes = await fetch(`/api/pages?project_id=${projectId}`);
+      const pagesRes = await fetch(`/api/pages?project_id=${projectId}`, { headers: loadHeaders });
       const dbPages = await pagesRes.json();
 
       setProject({
@@ -223,7 +231,9 @@ export default function Step5ExportSave() {
   const handleDeleteProject = async (projectId: string) => {
     if (deleteConfirm === projectId) {
       try {
-        await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+        const delHeaders: Record<string, string> = {};
+        if (token) delHeaders['Authorization'] = `Bearer ${token}`;
+        await fetch(`/api/projects/${projectId}`, { method: 'DELETE', headers: delHeaders });
         loadProjects();
         setDeleteConfirm(null);
         if (savedProjectId === projectId) {

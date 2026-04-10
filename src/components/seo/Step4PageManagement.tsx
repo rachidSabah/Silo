@@ -25,7 +25,7 @@ const PAGE_TYPES = ['pillar', 'cluster', 'blog', 'category', 'landing'] as const
 const PAGE_SIZE = 10;
 
 export default function Step4PageManagement() {
-  const { project, silos, pages, addPage, removePage, updatePage, setPages, setStep } = useStore();
+  const { project, silos, pages, addPage, removePage, updatePage, setPages, setStep, token } = useStore();
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -162,8 +162,12 @@ export default function Step4PageManagement() {
       const formData = new FormData();
       formData.append('file', file);
 
+      const importHeaders: Record<string, string> = {};
+      if (token) importHeaders['Authorization'] = `Bearer ${token}`;
+
       const res = await fetch('/api/import-csv', {
         method: 'POST',
+        headers: importHeaders,
         body: formData,
       });
 
