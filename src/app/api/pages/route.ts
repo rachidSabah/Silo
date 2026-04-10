@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
           keywords: page.keywords || null,
           type: page.type,
           parent_id: page.parent_id || null,
+          status: page.status || 'draft',
         });
         results.push({ id, ...page });
       }
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
       keywords: body.keywords || null,
       type: body.type,
       parent_id: body.parent_id || null,
+      status: body.status || 'draft',
     });
     return NextResponse.json({ id, ...body }, { status: 201 });
   } catch (error) {

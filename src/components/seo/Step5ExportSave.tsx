@@ -65,7 +65,7 @@ export default function Step5ExportSave() {
 
     try {
       const csvContent = [
-        ['slug', 'title', 'meta_description', 'keywords', 'type', 'parent_silo'].join(','),
+        ['slug', 'title', 'meta_description', 'keywords', 'type', 'parent_silo', 'status'].join(','),
         ...pages.map((p) => {
           const siloName = silos.find((s) => s.id === p.siloId)?.name || '';
           return [
@@ -75,6 +75,7 @@ export default function Step5ExportSave() {
             `"${p.keywords.join('; ')}"`,
             p.type,
             `"${siloName}"`,
+            p.status || 'draft',
           ].join(',');
         }),
       ].join('\n');
@@ -150,6 +151,7 @@ export default function Step5ExportSave() {
             keywords: JSON.stringify(page.keywords),
             type: page.type,
             parent_id: page.parentId,
+            status: page.status || 'draft',
           }),
         });
       }
@@ -196,7 +198,7 @@ export default function Step5ExportSave() {
       );
 
       setPages(
-        (dbPages || []).map((p: { id: string; project_id: string; silo_id: string | null; title: string; slug: string; meta_description: string; keywords: string; type: string; parent_id: string | null }) => ({
+        (dbPages || []).map((p: { id: string; project_id: string; silo_id: string | null; title: string; slug: string; meta_description: string; keywords: string; type: string; parent_id: string | null; status?: string }) => ({
           id: p.id,
           projectId: p.project_id,
           siloId: p.silo_id,
@@ -206,6 +208,7 @@ export default function Step5ExportSave() {
           keywords: p.keywords ? JSON.parse(p.keywords) : [],
           type: (['pillar', 'cluster', 'blog', 'category', 'landing'].includes(p.type) ? p.type : 'blog') as 'pillar' | 'cluster' | 'blog' | 'category' | 'landing',
           parentId: p.parent_id,
+          status: (['draft', 'in_progress', 'review', 'published'].includes(p.status || '') ? p.status : 'draft') as 'draft' | 'in_progress' | 'review' | 'published',
         }))
       );
 

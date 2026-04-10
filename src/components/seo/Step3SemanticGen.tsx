@@ -54,6 +54,7 @@ export default function Step3SemanticGen() {
           keywords: string[];
           type: 'pillar' | 'cluster' | 'blog' | 'category' | 'landing';
           parentId: string | null;
+          status: 'draft' | 'in_progress' | 'review' | 'published';
         }> = [];
         for (const [siloRef, siloPages] of Object.entries(data.pagesBySilo)) {
           // Match by both name and ID for robustness
@@ -79,6 +80,7 @@ export default function Step3SemanticGen() {
                 ? page.type
                 : 'blog') as 'pillar' | 'cluster' | 'blog' | 'category' | 'landing',
               parentId: null,
+              status: 'draft',
             });
           }
         }

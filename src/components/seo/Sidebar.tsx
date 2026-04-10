@@ -2,14 +2,19 @@
 
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { Check, Zap, Menu, X, Shield, Key, LogOut, User } from 'lucide-react';
+import {
+  Check, Zap, Menu, X, Shield, Key, LogOut, User,
+  BarChart3, Calendar, FileText,
+} from 'lucide-react';
 
-const steps = [
-  { num: 1, label: 'Project Setup' },
-  { num: 2, label: 'Silo Structure' },
-  { num: 3, label: 'Semantic Gen' },
-  { num: 4, label: 'Page Manager' },
-  { num: 5, label: 'Export & Save' },
+const workflowSteps = [
+  { num: 0, label: 'Dashboard', icon: BarChart3 },
+  { num: 1, label: 'Project Setup', icon: null },
+  { num: 2, label: 'Silo Structure', icon: null },
+  { num: 3, label: 'Semantic Gen', icon: null },
+  { num: 4, label: 'Page Manager', icon: null },
+  { num: 6, label: 'Content Calendar', icon: Calendar },
+  { num: 5, label: 'Export & Save', icon: null },
 ];
 
 export default function Sidebar() {
@@ -20,15 +25,19 @@ export default function Sidebar() {
   const isAdmin = user?.role === 'admin';
 
   const isStepAccessible = (step: number): boolean => {
+    if (step === 0) return true; // Dashboard always accessible
     if (step === 1) return true;
     if (step === 2) return !!project;
     if (step === 3) return !!project && silos.length > 0;
     if (step === 4) return !!project && pages.length > 0;
     if (step === 5) return !!project && pages.length > 0;
+    if (step === 6) return !!project && pages.length > 0;
+    if (step === 99) return true;
     return false;
   };
 
   const isStepCompleted = (step: number): boolean => {
+    if (step === 0) return false; // Dashboard never "completed"
     if (step === 1) return !!project;
     if (step === 2) return silos.length > 0;
     if (step === 3) return pages.length > 0;
@@ -48,6 +57,10 @@ export default function Sidebar() {
     setMobileOpen(false);
   };
 
+  // SEO stats for footer
+  const publishedCount = pages.filter(p => p.status === 'published').length;
+  const draftCount = pages.filter(p => p.status === 'draft' || !p.status).length;
+
   const sidebarContent = (
     <>
       {/* Logo */}
@@ -66,10 +79,11 @@ export default function Sidebar() {
       {/* Step Navigation */}
       <nav className="flex-1 p-3 md:p-4 space-y-1 overflow-y-auto">
         <p className="text-[10px] text-slate-600 uppercase tracking-wider px-3 md:px-4 mb-2">Workflow</p>
-        {steps.map((step) => {
+        {workflowSteps.map((step) => {
           const isActive = currentStep === step.num;
           const isCompleted = isStepCompleted(step.num);
           const isAccessible = isStepAccessible(step.num);
+          const IconComponent = step.icon;
 
           return (
             <button
@@ -78,7 +92,11 @@ export default function Sidebar() {
               disabled={!isAccessible}
               className={`w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2.5 md:py-3 rounded-xl text-left transition-all duration-200 ${
                 isActive
-                  ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30 shadow-lg shadow-blue-500/5'
+                  ? step.num === 0
+                    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-lg shadow-emerald-500/5'
+                    : step.num === 6
+                    ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                    : 'bg-blue-500/15 text-blue-300 border border-blue-500/30 shadow-lg shadow-blue-500/5'
                   : isCompleted
                   ? 'text-slate-300 hover:bg-slate-800 border border-transparent'
                   : isAccessible
@@ -89,13 +107,17 @@ export default function Sidebar() {
               <div
                 className={`w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center text-xs md:text-sm font-semibold transition-all flex-shrink-0 ${
                   isActive
-                    ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
+                    ? step.num === 0
+                      ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30'
+                      : step.num === 6
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
                     : isCompleted
                     ? 'bg-emerald-500/20 text-emerald-400'
                     : 'bg-slate-700/50 text-slate-500'
                 }`}
               >
-                {isCompleted && !isActive ? <Check size={14} /> : step.num}
+                {IconComponent ? <IconComponent size={14} /> : isCompleted && !isActive ? <Check size={14} /> : step.num}
               </div>
               <span className="text-xs md:text-sm font-medium">{step.label}</span>
             </button>
@@ -135,10 +157,8 @@ export default function Sidebar() {
             <div className="text-[9px] md:text-[10px] text-slate-500 uppercase tracking-wider">Pages</div>
           </div>
           <div className="bg-slate-800 rounded-lg p-1.5 md:p-2">
-            <div className="text-base md:text-lg font-bold text-white">
-              {pages.filter((p) => p.type === 'pillar').length}
-            </div>
-            <div className="text-[9px] md:text-[10px] text-slate-500 uppercase tracking-wider">Pillars</div>
+            <div className="text-base md:text-lg font-bold text-emerald-400">{publishedCount}</div>
+            <div className="text-[9px] md:text-[10px] text-slate-500 uppercase tracking-wider">Live</div>
           </div>
         </div>
 
@@ -163,6 +183,13 @@ export default function Sidebar() {
           {/* User dropdown */}
           {showUserMenu && (
             <div className="absolute bottom-full left-0 right-0 mb-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden z-10">
+              <button
+                onClick={() => { setStep(0); setShowUserMenu(false); setMobileOpen(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-slate-300 hover:bg-slate-700 text-xs transition-colors"
+              >
+                <BarChart3 size={14} />
+                Dashboard
+              </button>
               <button
                 onClick={() => { setStep(99); setShowUserMenu(false); setMobileOpen(false); }}
                 className="w-full flex items-center gap-2 px-3 py-2 text-slate-300 hover:bg-slate-700 text-xs transition-colors"

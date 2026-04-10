@@ -31,6 +31,7 @@ interface MemDB {
     keywords: string | null;
     type: string;
     parent_id: string | null;
+    status: string | null;
   }>;
 }
 
@@ -63,17 +64,17 @@ function getD1(): D1Database {
   return env.DB as D1Database;
 }
 
-// Auto-migrate: ensure silos table has keywords column
+// Auto-migrate: ensure silos table has keywords column, pages has status column
 let _migrationDone = false;
 async function ensureMigration(db: D1Database) {
   if (_migrationDone) return;
   _migrationDone = true;
   try {
-    // Try to add keywords column to silos (ignore error if it already exists)
     await db.prepare('ALTER TABLE silos ADD COLUMN keywords TEXT').run();
-  } catch {
-    // Column already exists, which is fine
-  }
+  } catch { /* already exists */ }
+  try {
+    await db.prepare('ALTER TABLE pages ADD COLUMN status TEXT DEFAULT \'draft\'').run();
+  } catch { /* already exists */ }
 }
 
 // ===== Projects =====
@@ -219,11 +220,11 @@ export async function getPagesByProject(projectId: string) {
   return mem.pages.filter((p) => p.project_id === projectId);
 }
 
-export async function createPage(data: { id: string; project_id: string; silo_id?: string | null; title: string; slug: string; meta_description?: string; keywords?: string; type: string; parent_id?: string | null }) {
+export async function createPage(data: { id: string; project_id: string; silo_id?: string | null; title: string; slug: string; meta_description?: string; keywords?: string; type: string; parent_id?: string | null; status?: string }) {
   if (isCloudflare()) {
     const db = getD1();
-    await db.prepare('INSERT OR REPLACE INTO pages (id, project_id, silo_id, title, slug, meta_description, keywords, type, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(data.id, data.project_id, data.silo_id || null, data.title, data.slug, data.meta_description || null, data.keywords || null, data.type, data.parent_id || null).run();
+    await db.prepare('INSERT OR REPLACE INTO pages (id, project_id, silo_id, title, slug, meta_description, keywords, type, parent_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(data.id, data.project_id, data.silo_id || null, data.title, data.slug, data.meta_description || null, data.keywords || null, data.type, data.parent_id || null, data.status || 'draft').run();
     return;
   }
   const mem = getMemDB();
@@ -239,10 +240,11 @@ export async function createPage(data: { id: string; project_id: string; silo_id
     keywords: data.keywords || null,
     type: data.type,
     parent_id: data.parent_id || null,
+    status: data.status || 'draft',
   });
 }
 
-export async function updatePage(id: string, data: { title?: string; slug?: string; meta_description?: string; keywords?: string; type?: string; silo_id?: string | null; parent_id?: string | null }) {
+export async function updatePage(id: string, data: { title?: string; slug?: string; meta_description?: string; keywords?: string; type?: string; silo_id?: string | null; parent_id?: string | null; status?: string }) {
   const fields: string[] = [];
   const values: (string | null)[] = [];
 
@@ -253,6 +255,7 @@ export async function updatePage(id: string, data: { title?: string; slug?: stri
   if (data.type !== undefined) { fields.push('type = ?'); values.push(data.type); }
   if (data.silo_id !== undefined) { fields.push('silo_id = ?'); values.push(data.silo_id); }
   if (data.parent_id !== undefined) { fields.push('parent_id = ?'); values.push(data.parent_id); }
+  if (data.status !== undefined) { fields.push('status = ?'); values.push(data.status); }
 
   if (fields.length === 0) return null;
 
@@ -272,6 +275,7 @@ export async function updatePage(id: string, data: { title?: string; slug?: stri
     if (data.type !== undefined) page.type = data.type;
     if (data.silo_id !== undefined) page.silo_id = data.silo_id;
     if (data.parent_id !== undefined) page.parent_id = data.parent_id;
+    if (data.status !== undefined) page.status = data.status;
   }
   return null;
 }

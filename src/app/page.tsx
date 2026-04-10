@@ -4,10 +4,12 @@ import { useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import LoginPage from '@/components/seo/LoginPage';
 import Sidebar from '@/components/seo/Sidebar';
+import DashboardAnalytics from '@/components/seo/DashboardAnalytics';
 import Step1ProjectSetup from '@/components/seo/Step1ProjectSetup';
 import Step2SiloStructure from '@/components/seo/Step2SiloStructure';
 import Step3SemanticGen from '@/components/seo/Step3SemanticGen';
 import Step4PageManagement from '@/components/seo/Step4PageManagement';
+import ContentCalendar from '@/components/seo/ContentCalendar';
 import Step5ExportSave from '@/components/seo/Step5ExportSave';
 import AdminPanel from '@/components/seo/AdminPanel';
 
@@ -43,6 +45,8 @@ export default function Home() {
 
   const renderStep = () => {
     switch (currentStep) {
+      case 0:
+        return <DashboardAnalytics />;
       case 1:
         return <Step1ProjectSetup />;
       case 2:
@@ -53,10 +57,12 @@ export default function Home() {
         return <Step4PageManagement />;
       case 5:
         return <Step5ExportSave />;
+      case 6:
+        return <ContentCalendar />;
       case 99:
         return <AdminPanel />;
       default:
-        return <Step1ProjectSetup />;
+        return <DashboardAnalytics />;
     }
   };
 

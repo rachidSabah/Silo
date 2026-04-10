@@ -17,6 +17,8 @@ export interface Silo {
   keywords: string[];
 }
 
+export type PageStatus = 'draft' | 'in_progress' | 'review' | 'published';
+
 export interface Page {
   id: string;
   projectId: string;
@@ -27,6 +29,7 @@ export interface Page {
   keywords: string[];
   type: 'pillar' | 'cluster' | 'blog' | 'category' | 'landing';
   parentId: string | null;
+  status: PageStatus;
 }
 
 export interface AuthUser {

@@ -138,6 +138,7 @@ export default function Step4PageManagement() {
       keywords: [],
       type: 'blog' as const,
       parentId: null,
+      status: 'draft' as const,
     };
     addPage(newPage);
   };
@@ -201,6 +202,9 @@ export default function Step4PageManagement() {
               ? row.type
               : 'blog') as 'pillar' | 'cluster' | 'blog' | 'category' | 'landing',
             parentId: null,
+            status: (['draft', 'in_progress', 'review', 'published'].includes(row.status)
+              ? row.status
+              : 'draft') as 'draft' | 'in_progress' | 'review' | 'published',
           };
         });
         setPages([...pages, ...newPages]);
