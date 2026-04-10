@@ -33,6 +33,14 @@ interface MemDB {
     parent_id: string | null;
     status: string | null;
   }>;
+  internal_links: Array<{
+    id: string;
+    project_id: string;
+    from_page_id: string;
+    to_page_id: string;
+    anchor: string;
+    created_at: string;
+  }>;
 }
 
 function getMemDB(): MemDB {
@@ -41,6 +49,7 @@ function getMemDB(): MemDB {
       projects: [],
       silos: [],
       pages: [],
+      internal_links: [],
     };
   }
   return (globalThis as Record<string, unknown>).__siloforge_memdb as MemDB;
@@ -74,6 +83,16 @@ async function ensureMigration(db: D1Database) {
   } catch { /* already exists */ }
   try {
     await db.prepare('ALTER TABLE pages ADD COLUMN status TEXT DEFAULT \'draft\'').run();
+  } catch { /* already exists */ }
+  try {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS internal_links (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      from_page_id TEXT NOT NULL,
+      to_page_id TEXT NOT NULL,
+      anchor TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run();
   } catch { /* already exists */ }
 }
 
@@ -123,6 +142,7 @@ export async function createProject(data: { id: string; name: string; domain: st
 export async function deleteProject(id: string) {
   if (isCloudflare()) {
     const db = getD1();
+    await db.prepare('DELETE FROM internal_links WHERE project_id = ?').bind(id).run();
     await db.prepare('DELETE FROM pages WHERE project_id = ?').bind(id).run();
     await db.prepare('DELETE FROM silos WHERE project_id = ?').bind(id).run();
     await db.prepare('DELETE FROM projects WHERE id = ?').bind(id).run();
@@ -136,6 +156,9 @@ export async function deleteProject(id: string) {
   }
   for (let i = mem.pages.length - 1; i >= 0; i--) {
     if (mem.pages[i].project_id === id) mem.pages.splice(i, 1);
+  }
+  for (let i = mem.internal_links.length - 1; i >= 0; i--) {
+    if (mem.internal_links[i].project_id === id) mem.internal_links.splice(i, 1);
   }
 }
 
@@ -283,12 +306,76 @@ export async function updatePage(id: string, data: { title?: string; slug?: stri
 export async function deletePage(id: string) {
   if (isCloudflare()) {
     const db = getD1();
+    await db.prepare('DELETE FROM internal_links WHERE from_page_id = ? OR to_page_id = ?').bind(id, id).run();
     await db.prepare('DELETE FROM pages WHERE id = ?').bind(id).run();
     return;
   }
   const mem = getMemDB();
   const idx = mem.pages.findIndex((p) => p.id === id);
   if (idx !== -1) mem.pages.splice(idx, 1);
+  // Remove related links
+  for (let i = mem.internal_links.length - 1; i >= 0; i--) {
+    if (mem.internal_links[i].from_page_id === id || mem.internal_links[i].to_page_id === id) {
+      mem.internal_links.splice(i, 1);
+    }
+  }
+}
+
+// ===== Internal Links =====
+
+export async function getInternalLinksByProject(projectId: string) {
+  if (isCloudflare()) {
+    const db = getD1();
+    await ensureMigration(db);
+    const { results } = await db.prepare('SELECT * FROM internal_links WHERE project_id = ?').bind(projectId).all();
+    return results;
+  }
+  const mem = getMemDB();
+  return mem.internal_links.filter((l) => l.project_id === projectId);
+}
+
+export async function createInternalLink(data: { id: string; project_id: string; from_page_id: string; to_page_id: string; anchor: string }) {
+  if (isCloudflare()) {
+    const db = getD1();
+    await ensureMigration(db);
+    await db.prepare('INSERT OR REPLACE INTO internal_links (id, project_id, from_page_id, to_page_id, anchor) VALUES (?, ?, ?, ?, ?)')
+      .bind(data.id, data.project_id, data.from_page_id, data.to_page_id, data.anchor).run();
+    return;
+  }
+  const mem = getMemDB();
+  const idx = mem.internal_links.findIndex((l) => l.id === data.id);
+  if (idx !== -1) mem.internal_links.splice(idx, 1);
+  mem.internal_links.push({
+    id: data.id,
+    project_id: data.project_id,
+    from_page_id: data.from_page_id,
+    to_page_id: data.to_page_id,
+    anchor: data.anchor,
+    created_at: new Date().toISOString(),
+  });
+}
+
+export async function deleteInternalLink(id: string) {
+  if (isCloudflare()) {
+    const db = getD1();
+    await db.prepare('DELETE FROM internal_links WHERE id = ?').bind(id).run();
+    return;
+  }
+  const mem = getMemDB();
+  const idx = mem.internal_links.findIndex((l) => l.id === id);
+  if (idx !== -1) mem.internal_links.splice(idx, 1);
+}
+
+export async function deleteInternalLinksByProject(projectId: string) {
+  if (isCloudflare()) {
+    const db = getD1();
+    await db.prepare('DELETE FROM internal_links WHERE project_id = ?').bind(projectId).run();
+    return;
+  }
+  const mem = getMemDB();
+  for (let i = mem.internal_links.length - 1; i >= 0; i--) {
+    if (mem.internal_links[i].project_id === projectId) mem.internal_links.splice(i, 1);
+  }
 }
 
 // ===== Users =====

@@ -181,3 +181,84 @@ Return ONLY a JSON array of link objects with "from" (page id), "to" (page id), 
   ], req);
   return parseJSON(content, []);
 }
+
+// ===== NEW AI FUNCTIONS =====
+
+export interface KeywordCluster {
+  name: string;
+  keywords: string[];
+  intent: 'informational' | 'navigational' | 'transactional' | 'commercial';
+  searchVolume?: string;
+  difficulty?: string;
+}
+
+export async function groupKeywords(
+  keywords: string[],
+  niche: string,
+  req?: NextRequest
+): Promise<KeywordCluster[]> {
+  const content = await callAI([
+    { role: 'system', content: `You are an SEO keyword clustering expert. Given a list of keywords, group them into logical clusters based on SERP similarity and topical relevance. For each cluster, determine the primary search intent (informational, navigational, transactional, or commercial). Return ONLY a JSON array of objects with "name" (cluster name), "keywords" (array of grouped keywords), "intent" (one of: informational, navigational, transactional, commercial). No other text.` },
+    { role: 'user', content: `Group these keywords for the niche "${niche}" into clusters:\n${keywords.join('\n')}` },
+  ], req);
+  return parseJSON(content, [{ name: niche, keywords, intent: 'informational' }]);
+}
+
+export async function mapSearchIntent(
+  keywords: string[],
+  req?: NextRequest
+): Promise<Array<{ keyword: string; intent: 'informational' | 'navigational' | 'transactional' | 'commercial'; funnelStage: string }>> {
+  const content = await callAI([
+    { role: 'system', content: `You are an SEO search intent expert. For each keyword, determine the primary search intent and funnel stage. Return ONLY a JSON array of objects with "keyword", "intent" (one of: informational, navigational, transactional, commercial), and "funnelStage" (one of: awareness, consideration, decision, retention). No other text.` },
+    { role: 'user', content: `Map search intent for these keywords:\n${keywords.join('\n')}` },
+  ], req);
+  return parseJSON(content, keywords.map(k => ({ keyword: k, intent: 'informational' as const, funnelStage: 'awareness' })));
+}
+
+export async function analyzeContentGap(
+  userSilos: { name: string; keywords: string[] }[],
+  competitorSilos: { name: string; keywords: string[] }[],
+  niche: string,
+  req?: NextRequest
+): Promise<Array<{ topic: string; keywords: string[]; priority: 'high' | 'medium' | 'low'; suggestedSilo: string }>> {
+  const content = await callAI([
+    { role: 'system', content: `You are an SEO competitive analysis expert. Compare the user's content silos with a competitor's silos to identify content gaps - topics the competitor covers that the user does not. Return ONLY a JSON array of gap objects with "topic" (missing topic), "keywords" (related keywords), "priority" (high/medium/low based on search demand), and "suggestedSilo" (which of the user's silos this topic fits best). No other text.` },
+    { role: 'user', content: `User's silos:\n${JSON.stringify(userSilos)}\n\nCompetitor's silos:\n${JSON.stringify(competitorSilos)}\n\nNiche: ${niche}` },
+  ], req);
+  return parseJSON(content, []);
+}
+
+export interface ContentBrief {
+  title: string;
+  targetKeywords: string[];
+  searchIntent: string;
+  contentType: string;
+  wordCountTarget: string;
+  outline: string[];
+  keyPoints: string[];
+  internalLinkTargets: string[];
+  metaDescription: string;
+  callToAction: string;
+}
+
+export async function generateContentBrief(
+  pageTitle: string,
+  pageType: string,
+  siloName: string,
+  keywords: string[],
+  siblingPages: { title: string; type: string }[],
+  niche: string,
+  req?: NextRequest
+): Promise<ContentBrief | null> {
+  const content = await callAI([
+    { role: 'system', content: `You are an SEO content strategist creating detailed content briefs. Given a page's context within a silo structure, generate a comprehensive content brief. The brief should be tailored to the page's role (pillar pages need comprehensive guides, cluster pages need focused deep-dives, blog posts need engaging content). Return ONLY a JSON object with these fields: "title" (optimized H1), "targetKeywords" (array of 3-5), "searchIntent" (informational/transactional/commercial/navigational), "contentType" (guide/tutorial/listicle/comparison/etc), "wordCountTarget" (e.g., "2000-2500"), "outline" (array of H2 sections), "keyPoints" (array of must-cover points), "internalLinkTargets" (array of suggested pages to link to from this content), "metaDescription" (150-160 chars), "callToAction" (suggested CTA). No other text.` },
+    { role: 'user', content: `Generate a content brief for:
+- Page Title: ${pageTitle}
+- Page Type: ${pageType}
+- Silo: ${siloName}
+- Keywords: ${keywords.join(', ')}
+- Niche: ${niche}
+- Sibling pages in silo: ${JSON.stringify(siblingPages)}` },
+  ], req);
+  return parseJSON(content, null);
+}

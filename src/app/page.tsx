@@ -12,6 +12,10 @@ import Step4PageManagement from '@/components/seo/Step4PageManagement';
 import ContentCalendar from '@/components/seo/ContentCalendar';
 import Step5ExportSave from '@/components/seo/Step5ExportSave';
 import AdminPanel from '@/components/seo/AdminPanel';
+import VisualSiloBuilder from '@/components/seo/VisualSiloBuilder';
+import InternalLinkingEngine from '@/components/seo/InternalLinkingEngine';
+import KeywordIntelligence from '@/components/seo/KeywordIntelligence';
+import ContentBriefGenerator from '@/components/seo/ContentBriefGenerator';
 
 export default function Home() {
   const { currentStep, user, token, setUser, setToken } = useStore();
@@ -59,6 +63,14 @@ export default function Home() {
         return <Step5ExportSave />;
       case 6:
         return <ContentCalendar />;
+      case 7:
+        return <VisualSiloBuilder />;
+      case 8:
+        return <InternalLinkingEngine />;
+      case 9:
+        return <KeywordIntelligence />;
+      case 10:
+        return <ContentBriefGenerator />;
       case 99:
         return <AdminPanel />;
       default:

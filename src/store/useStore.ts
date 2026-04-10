@@ -32,6 +32,14 @@ export interface Page {
   status: PageStatus;
 }
 
+export interface InternalLink {
+  id: string;
+  projectId: string;
+  fromPageId: string;
+  toPageId: string;
+  anchor: string;
+}
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -39,12 +47,44 @@ export interface AuthUser {
   role: string;
 }
 
+export interface KeywordCluster {
+  name: string;
+  keywords: string[];
+  intent: 'informational' | 'navigational' | 'transactional' | 'commercial';
+}
+
+export interface ContentGap {
+  topic: string;
+  keywords: string[];
+  priority: 'high' | 'medium' | 'low';
+  suggestedSilo: string;
+}
+
+export interface ContentBrief {
+  title: string;
+  targetKeywords: string[];
+  searchIntent: string;
+  contentType: string;
+  wordCountTarget: string;
+  outline: string[];
+  keyPoints: string[];
+  internalLinkTargets: string[];
+  metaDescription: string;
+  callToAction: string;
+}
+
 interface AppState {
   currentStep: number;
   project: Project | null;
   silos: Silo[];
   pages: Page[];
+  internalLinks: InternalLink[];
   savedProjectId: string | null;
+
+  // AI results cache
+  keywordClusters: KeywordCluster[];
+  contentGaps: ContentGap[];
+  contentBrief: ContentBrief | null;
 
   // Auth
   user: AuthUser | null;
@@ -69,6 +109,17 @@ interface AppState {
   removePage: (id: string) => void;
   updatePage: (id: string, data: Partial<Page>) => void;
 
+  // Internal Link actions
+  setInternalLinks: (links: InternalLink[]) => void;
+  addInternalLink: (link: InternalLink) => void;
+  addInternalLinks: (links: InternalLink[]) => void;
+  removeInternalLink: (id: string) => void;
+
+  // AI results actions
+  setKeywordClusters: (clusters: KeywordCluster[]) => void;
+  setContentGaps: (gaps: ContentGap[]) => void;
+  setContentBrief: (brief: ContentBrief | null) => void;
+
   // Project ID
   setSavedProjectId: (id: string | null) => void;
 
@@ -86,7 +137,11 @@ const initialState = {
   project: null,
   silos: [],
   pages: [],
+  internalLinks: [],
   savedProjectId: null,
+  keywordClusters: [],
+  contentGaps: [],
+  contentBrief: null,
   user: null,
   token: null,
 };
@@ -113,10 +168,24 @@ export const useStore = create<AppState>()(
       setPages: (pages) => set({ pages }),
       addPage: (page) => set((state) => ({ pages: [...state.pages, page] })),
       addPages: (pages) => set((state) => ({ pages: [...state.pages, ...pages] })),
-      removePage: (id) => set((state) => ({ pages: state.pages.filter((p) => p.id !== id) })),
+      removePage: (id) => set((state) => ({
+        pages: state.pages.filter((p) => p.id !== id),
+        internalLinks: state.internalLinks.filter((l) => l.fromPageId !== id && l.toPageId !== id),
+      })),
       updatePage: (id, data) => set((state) => ({
         pages: state.pages.map((p) => (p.id === id ? { ...p, ...data } : p)),
       })),
+
+      setInternalLinks: (internalLinks) => set({ internalLinks }),
+      addInternalLink: (link) => set((state) => ({ internalLinks: [...state.internalLinks, link] })),
+      addInternalLinks: (links) => set((state) => ({ internalLinks: [...state.internalLinks, ...links] })),
+      removeInternalLink: (id) => set((state) => ({
+        internalLinks: state.internalLinks.filter((l) => l.id !== id),
+      })),
+
+      setKeywordClusters: (keywordClusters) => set({ keywordClusters }),
+      setContentGaps: (contentGaps) => set({ contentGaps }),
+      setContentBrief: (contentBrief) => set({ contentBrief }),
 
       setSavedProjectId: (id) => set({ savedProjectId: id }),
 
@@ -124,7 +193,11 @@ export const useStore = create<AppState>()(
       setToken: (token) => set({ token }),
       logout: () => set({ ...initialState }),
 
-      resetStore: () => set({ currentStep: 1, project: null, silos: [], pages: [], savedProjectId: null }),
+      resetStore: () => set({
+        currentStep: 1, project: null, silos: [], pages: [],
+        internalLinks: [], savedProjectId: null,
+        keywordClusters: [], contentGaps: [], contentBrief: null,
+      }),
     }),
     {
       name: 'siloforge-store',

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import {
   Check, Zap, Menu, X, Shield, Key, LogOut, User,
-  BarChart3, Calendar, FileText,
+  BarChart3, Calendar, FileText, Network, Link2, Brain, PenTool,
 } from 'lucide-react';
 
 const workflowSteps = [
@@ -15,6 +15,13 @@ const workflowSteps = [
   { num: 4, label: 'Page Manager', icon: null },
   { num: 6, label: 'Content Calendar', icon: Calendar },
   { num: 5, label: 'Export & Save', icon: null },
+];
+
+const toolSteps = [
+  { num: 7, label: 'Silo Builder', icon: Network, color: 'emerald' },
+  { num: 8, label: 'Linking Engine', icon: Link2, color: 'red' },
+  { num: 9, label: 'Keyword Intel', icon: Brain, color: 'purple' },
+  { num: 10, label: 'Content Briefs', icon: PenTool, color: 'amber' },
 ];
 
 export default function Sidebar() {
@@ -32,6 +39,10 @@ export default function Sidebar() {
     if (step === 4) return !!project && pages.length > 0;
     if (step === 5) return !!project && pages.length > 0;
     if (step === 6) return !!project && pages.length > 0;
+    if (step === 7) return !!project && silos.length > 0; // Silo Builder
+    if (step === 8) return !!project && pages.length > 0; // Linking Engine
+    if (step === 9) return !!project; // Keyword Intel
+    if (step === 10) return !!project && pages.length > 0; // Content Briefs
     if (step === 99) return true;
     return false;
   };
@@ -123,6 +134,45 @@ export default function Sidebar() {
             </button>
           );
         })}
+
+        {/* SEO Tools Section */}
+        <div className="pt-4 mt-4 border-t border-slate-700/50">
+          <p className="text-[10px] text-slate-600 uppercase tracking-wider px-3 md:px-4 mb-2">SEO Tools</p>
+          {toolSteps.map((step) => {
+            const isActive = currentStep === step.num;
+            const isAccessible = isStepAccessible(step.num);
+            const IconComponent = step.icon;
+            const colorMap: Record<string, { activeBg: string; activeText: string; activeBorder: string }> = {
+              emerald: { activeBg: 'bg-emerald-500/15', activeText: 'text-emerald-300', activeBorder: 'border-emerald-500/30' },
+              red: { activeBg: 'bg-red-500/15', activeText: 'text-red-300', activeBorder: 'border-red-500/30' },
+              purple: { activeBg: 'bg-purple-500/15', activeText: 'text-purple-300', activeBorder: 'border-purple-500/30' },
+              amber: { activeBg: 'bg-amber-500/15', activeText: 'text-amber-300', activeBorder: 'border-amber-500/30' },
+            };
+            const color = colorMap[step.color] || colorMap.emerald;
+
+            return (
+              <button
+                key={step.num}
+                onClick={() => handleStepClick(step.num)}
+                disabled={!isAccessible}
+                className={`w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2.5 md:py-3 rounded-xl text-left transition-all duration-200 ${
+                  isActive
+                    ? `${color.activeBg} ${color.activeText} border ${color.activeBorder}`
+                    : isAccessible
+                    ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-300 border border-transparent'
+                    : 'text-slate-600 cursor-not-allowed border border-transparent'
+                }`}
+              >
+                <div className={`w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  isActive ? 'bg-slate-700 text-white' : 'bg-slate-700/50 text-slate-500'
+                }`}>
+                  <IconComponent size={14} />
+                </div>
+                <span className="text-xs md:text-sm font-medium">{step.label}</span>
+              </button>
+            );
+          })}
+        </div>
 
         {/* Admin Section */}
         <div className="pt-4 mt-4 border-t border-slate-700/50">
@@ -247,7 +297,7 @@ export default function Sidebar() {
       </aside>
 
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex w-[260px] min-w-[260px] bg-slate-900 border-r border-slate-700 flex-col h-full">
+      <aside className="hidden md:flex w-[260px] min-w-[260px] bg-slate-900 border-r border-slate-700 flex-col h-full overflow-y-auto">
         {sidebarContent}
       </aside>
     </>

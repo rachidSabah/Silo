@@ -2,13 +2,15 @@
 
 import { useStore } from '@/store/useStore';
 import { calculateSEOScore, getScoreColor, getScoreBgColor } from '@/lib/seo-score';
+import { calculateSiloHealth, getHealthColor, getHealthBgColor, getHealthDot } from '@/lib/silo-health';
 import {
   BarChart3, FileText, Layers, Target, TrendingUp,
   AlertTriangle, CheckCircle2, Clock, Eye,
+  Network, Link2, Brain, PenTool,
 } from 'lucide-react';
 
 export default function DashboardAnalytics() {
-  const { project, silos, pages, setStep } = useStore();
+  const { project, silos, pages, internalLinks, setStep } = useStore();
 
   // Calculate stats
   const totalPages = pages.length;
@@ -53,6 +55,22 @@ export default function DashboardAnalytics() {
     pages.some(p => p.siloId === s.id && p.type === 'pillar')
   ).length;
 
+  // Silo health scores
+  const siloHealthResults = silos.map(silo =>
+    calculateSiloHealth(silo, pages, internalLinks.map(l => ({
+      fromPageId: l.fromPageId,
+      toPageId: l.toPageId,
+      anchor: l.anchor,
+    })))
+  );
+  const avgSiloHealth = siloHealthResults.length > 0
+    ? Math.round(siloHealthResults.reduce((sum, h) => sum + h.score, 0) / siloHealthResults.length)
+    : 0;
+  const healthySilos = siloHealthResults.filter(h => h.grade === 'healthy').length;
+  const warningSilos = siloHealthResults.filter(h => h.grade === 'warning').length;
+  const criticalSilos = siloHealthResults.filter(h => h.grade === 'critical').length;
+  const totalBleedLinks = siloHealthResults.reduce((sum, h) => sum + h.bleedLinks.length, 0);
+
   // Completion percentage
   const completionPct = totalPages > 0
     ? Math.round(((statusCounts.published + statusCounts.review) / totalPages) * 100)
@@ -89,7 +107,7 @@ export default function DashboardAnalytics() {
         <StatCard icon={<TrendingUp size={18} />} label="Avg SEO Score" value={avgScore} suffix="/100" color="emerald" />
       </div>
 
-      {/* SEO Score + Completion */}
+      {/* SEO Score + Content Pipeline */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         {/* SEO Score Card */}
         <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 md:p-5">
@@ -103,7 +121,7 @@ export default function DashboardAnalytics() {
             </div>
             <div>
               <p className="text-white text-lg font-semibold">{avgScore}/100</p>
-              <p className="text-slate-400 text-sm">Average SEO Score</p>
+              <p className="text-slate-400 text-sm">Average Page Score</p>
             </div>
           </div>
           <div className="space-y-2">
@@ -159,8 +177,67 @@ export default function DashboardAnalytics() {
         </div>
       </div>
 
-      {/* Page Types + Silo Coverage */}
+      {/* Silo Architecture Health + Page Types */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        {/* Silo Architecture Health */}
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 md:p-5">
+          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+            <Network size={16} className="text-emerald-400" />
+            Silo Architecture Health
+          </h3>
+          <div className="flex items-center gap-4 mb-4">
+            <div className="w-16 h-16 rounded-xl flex items-center justify-center border bg-slate-700/50 border-slate-600">
+              <span className="text-2xl font-bold text-white">{avgSiloHealth}</span>
+            </div>
+            <div>
+              <p className="text-white text-lg font-semibold">{avgSiloHealth}/100</p>
+              <p className="text-slate-400 text-sm">Avg Silo Health</p>
+            </div>
+          </div>
+          <div className="space-y-2 mb-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 size={14} /> Healthy
+              </span>
+              <span className="text-emerald-400">{healthySilos} silos</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-yellow-400 flex items-center gap-1.5">
+                <AlertTriangle size={14} /> Warning
+              </span>
+              <span className="text-yellow-400">{warningSilos} silos</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-red-400 flex items-center gap-1.5">
+                <AlertTriangle size={14} /> Critical
+              </span>
+              <span className="text-red-400">{criticalSilos} silos</span>
+            </div>
+            {totalBleedLinks > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-red-400 flex items-center gap-1.5">
+                  <Link2 size={14} /> Bleed Links
+                </span>
+                <span className="text-red-400">{totalBleedLinks}</span>
+              </div>
+            )}
+          </div>
+          <div className="space-y-2 max-h-[160px] overflow-y-auto">
+            {siloHealthResults.map(hr => (
+              <div key={hr.siloId} className="flex items-center justify-between p-2 bg-slate-900 rounded-lg">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className={`w-2 h-2 rounded-full ${getHealthDot(hr.grade)}`} />
+                  <span className="text-white text-xs truncate">{hr.siloName}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-bold ${getHealthColor(hr.grade)}`}>{hr.score}</span>
+                  <span className="text-slate-500 text-[10px]">{hr.totalPages}p</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Page Types Distribution */}
         <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 md:p-5">
           <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
@@ -174,16 +251,10 @@ export default function DashboardAnalytics() {
             <TypeRow label="Category" count={typeCounts.category} total={totalPages} color="bg-emerald-500" desc="Category hub pages" />
             <TypeRow label="Landing" count={typeCounts.landing} total={totalPages} color="bg-rose-500" desc="Conversion-focused pages" />
           </div>
-        </div>
 
-        {/* Silo Coverage */}
-        <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 md:p-5">
-          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-            <Layers size={16} className="text-blue-400" />
-            Silo Coverage
-          </h3>
-          <div className="space-y-3 mb-4">
-            <div className="flex items-center justify-between text-sm">
+          {/* Silo coverage summary */}
+          <div className="mt-4 pt-3 border-t border-slate-700">
+            <div className="flex items-center justify-between text-sm mb-1">
               <span className="text-slate-400">Silos with pillar page</span>
               <span className="text-emerald-400 font-medium">{silosWithPillar}/{totalSilos}</span>
             </div>
@@ -191,40 +262,51 @@ export default function DashboardAnalytics() {
               <span className="text-slate-400">Unassigned pages</span>
               <span className="text-yellow-400 font-medium">{pages.filter(p => !p.siloId).length}</span>
             </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-400">Pages without keywords</span>
-              <span className="text-red-400 font-medium">{pages.filter(p => p.keywords.length === 0).length}</span>
-            </div>
-          </div>
-
-          {/* Silo list */}
-          <div className="space-y-2 max-h-[240px] overflow-y-auto">
-            {silos.map(silo => {
-              const siloPages = pages.filter(p => p.siloId === silo.id);
-              const hasPillar = siloPages.some(p => p.type === 'pillar');
-              return (
-                <div key={silo.id} className="flex items-center justify-between p-2.5 bg-slate-900 rounded-lg">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {hasPillar ? (
-                      <CheckCircle2 size={14} className="text-emerald-400 flex-shrink-0" />
-                    ) : (
-                      <AlertTriangle size={14} className="text-yellow-400 flex-shrink-0" />
-                    )}
-                    <span className="text-white text-sm truncate">{silo.name}</span>
-                  </div>
-                  <span className="text-slate-500 text-xs flex-shrink-0 ml-2">{siloPages.length} pages</span>
-                </div>
-              );
-            })}
-            {silos.length === 0 && (
-              <p className="text-slate-500 text-sm text-center py-4">No silos created yet</p>
-            )}
           </div>
         </div>
       </div>
 
-      {/* Quick Actions */}
+      {/* SEO Tools Quick Access */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 md:p-5">
+        <h3 className="text-white font-semibold mb-3">SEO Tools</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <ToolCard
+            icon={<Network size={20} />}
+            label="Silo Builder"
+            desc="Visual architecture with health scoring"
+            color="emerald"
+            onClick={() => setStep(7)}
+            disabled={!project || silos.length === 0}
+          />
+          <ToolCard
+            icon={<Link2 size={20} />}
+            label="Linking Engine"
+            desc="AI link suggestions & bleed alerts"
+            color="red"
+            onClick={() => setStep(8)}
+            disabled={!project || pages.length === 0}
+          />
+          <ToolCard
+            icon={<Brain size={20} />}
+            label="Keyword Intel"
+            desc="Clustering, intent & gap analysis"
+            color="purple"
+            onClick={() => setStep(9)}
+            disabled={!project}
+          />
+          <ToolCard
+            icon={<PenTool size={20} />}
+            label="Content Briefs"
+            desc="AI-powered briefs per page"
+            color="amber"
+            onClick={() => setStep(10)}
+            disabled={!project || pages.length === 0}
+          />
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 md:p-5 mt-4">
         <h3 className="text-white font-semibold mb-3">Quick Actions</h3>
         <div className="flex flex-wrap gap-2">
           <button
@@ -326,5 +408,29 @@ function TypeRow({ label, count, total, color, desc }: {
         <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
       </div>
     </div>
+  );
+}
+
+function ToolCard({ icon, label, desc, color, onClick, disabled }: {
+  icon: React.ReactNode; label: string; desc: string; color: string; onClick: () => void; disabled?: boolean;
+}) {
+  const colorMap: Record<string, { bg: string; text: string; border: string; hover: string }> = {
+    emerald: { bg: 'bg-emerald-500/10', text: 'text-emerald-300', border: 'border-emerald-500/20', hover: 'hover:bg-emerald-500/20' },
+    red: { bg: 'bg-red-500/10', text: 'text-red-300', border: 'border-red-500/20', hover: 'hover:bg-red-500/20' },
+    purple: { bg: 'bg-purple-500/10', text: 'text-purple-300', border: 'border-purple-500/20', hover: 'hover:bg-purple-500/20' },
+    amber: { bg: 'bg-amber-500/10', text: 'text-amber-300', border: 'border-amber-500/20', hover: 'hover:bg-amber-500/20' },
+  };
+  const c = colorMap[color] || colorMap.emerald;
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`p-4 ${c.bg} ${c.border} border rounded-xl text-left transition-all ${c.hover} disabled:opacity-40 disabled:cursor-not-allowed`}
+    >
+      <div className={`${c.text} mb-2`}>{icon}</div>
+      <div className="text-white text-sm font-medium mb-0.5">{label}</div>
+      <div className="text-slate-400 text-[11px]">{desc}</div>
+    </button>
   );
 }
