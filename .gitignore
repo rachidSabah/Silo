@@ -66,5 +66,14 @@ data/
 # Examples
 /examples/
 
-# Migration files (applied separately)
-migrations/
+# Migration files are tracked for deployment reference
+# migrations/ intentionally NOT ignored
+
+# Local directories
+/download/
+/upload/
+/mini-services/
+/prisma/
+/db/
+/.zscripts/
+worklog.md
