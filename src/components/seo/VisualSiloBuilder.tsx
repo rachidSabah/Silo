@@ -11,6 +11,7 @@ import {
   type SiloHealthResult,
 } from '@/lib/silo-health';
 import PageTypeBadge from './PageTypeBadge';
+import MindMapCanvas from './MindMapCanvas';
 import {
   Network, AlertTriangle, CheckCircle2, XCircle, ChevronDown, ChevronRight,
   GripVertical, Plus, Trash2, AlertCircle, Link2, Shield, Eye,
@@ -38,6 +39,7 @@ export default function VisualSiloBuilder() {
   const [showOrphaned, setShowOrphaned] = useState(true);
   const [showBleedAlerts, setShowBleedAlerts] = useState(true);
   const [filterHealth, setFilterHealth] = useState<string>('all');
+  const [viewMode, setViewMode] = useState<'list' | 'mindmap'>('list');
 
   useEffect(() => {
     if (!project) setStep(1);
@@ -235,9 +237,35 @@ export default function VisualSiloBuilder() {
             {filter === 'all' ? 'All' : filter.charAt(0).toUpperCase() + filter.slice(1)}
           </button>
         ))}
+
+        <div className="flex-1" />
+
+        {/* View Mode Toggle */}
+        <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg p-0.5">
+          <button
+            onClick={() => setViewMode('list')}
+            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+              viewMode === 'list' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            List
+          </button>
+          <button
+            onClick={() => setViewMode('mindmap')}
+            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+              viewMode === 'mindmap' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Mind Map
+          </button>
+        </div>
       </div>
 
-      {/* Interactive Silo Map */}
+      {/* Mind Map View */}
+      {viewMode === 'mindmap' && <MindMapCanvas />}
+
+      {/* Interactive Silo Map (List View) */}
+      {viewMode === 'list' && (
       <div className="space-y-4">
         {filteredSilos.map((silo, index) => {
           const color = siloColors[index % siloColors.length];
@@ -433,6 +461,7 @@ export default function VisualSiloBuilder() {
           </div>
         )}
       </div>
+      )}
 
       {/* Navigation */}
       <div className="flex justify-between pt-6 md:pt-8 mt-6 md:mt-8 border-t border-slate-700">

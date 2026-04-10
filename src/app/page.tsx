@@ -16,6 +16,7 @@ import VisualSiloBuilder from '@/components/seo/VisualSiloBuilder';
 import InternalLinkingEngine from '@/components/seo/InternalLinkingEngine';
 import KeywordIntelligence from '@/components/seo/KeywordIntelligence';
 import ContentBriefGenerator from '@/components/seo/ContentBriefGenerator';
+import ArticleGenerator from '@/components/seo/ArticleGenerator';
 
 export default function Home() {
   const { currentStep, user, token, setUser, setToken } = useStore();
@@ -71,6 +72,8 @@ export default function Home() {
         return <KeywordIntelligence />;
       case 10:
         return <ContentBriefGenerator />;
+      case 11:
+        return <ArticleGenerator />;
       case 99:
         return <AdminPanel />;
       default:

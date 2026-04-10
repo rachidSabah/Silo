@@ -30,6 +30,8 @@ export interface Page {
   type: 'pillar' | 'cluster' | 'blog' | 'category' | 'landing';
   parentId: string | null;
   status: PageStatus;
+  content: string; // Generated article HTML/Markdown content
+  wordCount: number; // Approximate word count of generated content
 }
 
 export interface InternalLink {
@@ -73,6 +75,26 @@ export interface ContentBrief {
   callToAction: string;
 }
 
+export interface GeneratedArticle {
+  pageId: string;
+  title: string;
+  content: string; // HTML content
+  wordCount: number;
+  internalLinks: Array<{ anchor: string; targetSlug: string }>;
+  metaDescription: string;
+}
+
+export interface CMSConfig {
+  id: string;
+  type: 'wordpress' | 'webhook' | 'headless';
+  name: string;
+  url: string;
+  apiKey?: string;
+  username?: string;
+  password?: string;
+  isActive: boolean;
+}
+
 interface AppState {
   currentStep: number;
   project: Project | null;
@@ -85,6 +107,11 @@ interface AppState {
   keywordClusters: KeywordCluster[];
   contentGaps: ContentGap[];
   contentBrief: ContentBrief | null;
+  generatedArticles: GeneratedArticle[];
+  bulkGeneratingProgress: { current: number; total: number; siloName: string } | null;
+
+  // CMS configs
+  cmsConfigs: CMSConfig[];
 
   // Auth
   user: AuthUser | null;
@@ -119,6 +146,15 @@ interface AppState {
   setKeywordClusters: (clusters: KeywordCluster[]) => void;
   setContentGaps: (gaps: ContentGap[]) => void;
   setContentBrief: (brief: ContentBrief | null) => void;
+  setGeneratedArticles: (articles: GeneratedArticle[]) => void;
+  addGeneratedArticle: (article: GeneratedArticle) => void;
+  setBulkGeneratingProgress: (progress: { current: number; total: number; siloName: string } | null) => void;
+
+  // CMS actions
+  setCMSConfigs: (configs: CMSConfig[]) => void;
+  addCMSConfig: (config: CMSConfig) => void;
+  removeCMSConfig: (id: string) => void;
+  updateCMSConfig: (id: string, data: Partial<CMSConfig>) => void;
 
   // Project ID
   setSavedProjectId: (id: string | null) => void;
@@ -142,6 +178,9 @@ const initialState = {
   keywordClusters: [],
   contentGaps: [],
   contentBrief: null,
+  generatedArticles: [],
+  bulkGeneratingProgress: null,
+  cmsConfigs: [],
   user: null,
   token: null,
 };
@@ -186,6 +225,18 @@ export const useStore = create<AppState>()(
       setKeywordClusters: (keywordClusters) => set({ keywordClusters }),
       setContentGaps: (contentGaps) => set({ contentGaps }),
       setContentBrief: (contentBrief) => set({ contentBrief }),
+      setGeneratedArticles: (generatedArticles) => set({ generatedArticles }),
+      addGeneratedArticle: (article) => set((state) => ({
+        generatedArticles: [...state.generatedArticles.filter(a => a.pageId !== article.pageId), article],
+      })),
+      setBulkGeneratingProgress: (bulkGeneratingProgress) => set({ bulkGeneratingProgress }),
+
+      setCMSConfigs: (cmsConfigs) => set({ cmsConfigs }),
+      addCMSConfig: (config) => set((state) => ({ cmsConfigs: [...state.cmsConfigs, config] })),
+      removeCMSConfig: (id) => set((state) => ({ cmsConfigs: state.cmsConfigs.filter((c) => c.id !== id) })),
+      updateCMSConfig: (id, data) => set((state) => ({
+        cmsConfigs: state.cmsConfigs.map((c) => (c.id === id ? { ...c, ...data } : c)),
+      })),
 
       setSavedProjectId: (id) => set({ savedProjectId: id }),
 
@@ -197,6 +248,7 @@ export const useStore = create<AppState>()(
         currentStep: 1, project: null, silos: [], pages: [],
         internalLinks: [], savedProjectId: null,
         keywordClusters: [], contentGaps: [], contentBrief: null,
+        generatedArticles: [], bulkGeneratingProgress: null, cmsConfigs: [],
       }),
     }),
     {

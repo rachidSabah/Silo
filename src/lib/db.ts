@@ -32,6 +32,8 @@ interface MemDB {
     type: string;
     parent_id: string | null;
     status: string | null;
+    content: string | null;
+    word_count: number | null;
   }>;
   internal_links: Array<{
     id: string;
@@ -83,6 +85,12 @@ async function ensureMigration(db: D1Database) {
   } catch { /* already exists */ }
   try {
     await db.prepare('ALTER TABLE pages ADD COLUMN status TEXT DEFAULT \'draft\'').run();
+  } catch { /* already exists */ }
+  try {
+    await db.prepare('ALTER TABLE pages ADD COLUMN content TEXT').run();
+  } catch { /* already exists */ }
+  try {
+    await db.prepare('ALTER TABLE pages ADD COLUMN word_count INTEGER').run();
   } catch { /* already exists */ }
   try {
     await db.prepare(`CREATE TABLE IF NOT EXISTS internal_links (
@@ -243,11 +251,11 @@ export async function getPagesByProject(projectId: string) {
   return mem.pages.filter((p) => p.project_id === projectId);
 }
 
-export async function createPage(data: { id: string; project_id: string; silo_id?: string | null; title: string; slug: string; meta_description?: string; keywords?: string; type: string; parent_id?: string | null; status?: string }) {
+export async function createPage(data: { id: string; project_id: string; silo_id?: string | null; title: string; slug: string; meta_description?: string; keywords?: string; type: string; parent_id?: string | null; status?: string; content?: string; word_count?: number }) {
   if (isCloudflare()) {
     const db = getD1();
-    await db.prepare('INSERT OR REPLACE INTO pages (id, project_id, silo_id, title, slug, meta_description, keywords, type, parent_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(data.id, data.project_id, data.silo_id || null, data.title, data.slug, data.meta_description || null, data.keywords || null, data.type, data.parent_id || null, data.status || 'draft').run();
+    await db.prepare('INSERT OR REPLACE INTO pages (id, project_id, silo_id, title, slug, meta_description, keywords, type, parent_id, status, content, word_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(data.id, data.project_id, data.silo_id || null, data.title, data.slug, data.meta_description || null, data.keywords || null, data.type, data.parent_id || null, data.status || 'draft', data.content || null, data.word_count || null).run();
     return;
   }
   const mem = getMemDB();
@@ -264,12 +272,14 @@ export async function createPage(data: { id: string; project_id: string; silo_id
     type: data.type,
     parent_id: data.parent_id || null,
     status: data.status || 'draft',
+    content: data.content || null,
+    word_count: data.word_count || null,
   });
 }
 
-export async function updatePage(id: string, data: { title?: string; slug?: string; meta_description?: string; keywords?: string; type?: string; silo_id?: string | null; parent_id?: string | null; status?: string }) {
+export async function updatePage(id: string, data: { title?: string; slug?: string; meta_description?: string; keywords?: string; type?: string; silo_id?: string | null; parent_id?: string | null; status?: string; content?: string; word_count?: number }) {
   const fields: string[] = [];
-  const values: (string | null)[] = [];
+  const values: (string | number | null)[] = [];
 
   if (data.title !== undefined) { fields.push('title = ?'); values.push(data.title); }
   if (data.slug !== undefined) { fields.push('slug = ?'); values.push(data.slug); }
@@ -279,6 +289,8 @@ export async function updatePage(id: string, data: { title?: string; slug?: stri
   if (data.silo_id !== undefined) { fields.push('silo_id = ?'); values.push(data.silo_id); }
   if (data.parent_id !== undefined) { fields.push('parent_id = ?'); values.push(data.parent_id); }
   if (data.status !== undefined) { fields.push('status = ?'); values.push(data.status); }
+  if (data.content !== undefined) { fields.push('content = ?'); values.push(data.content); }
+  if (data.word_count !== undefined) { fields.push('word_count = ?'); values.push(data.word_count); }
 
   if (fields.length === 0) return null;
 
@@ -299,6 +311,8 @@ export async function updatePage(id: string, data: { title?: string; slug?: stri
     if (data.silo_id !== undefined) page.silo_id = data.silo_id;
     if (data.parent_id !== undefined) page.parent_id = data.parent_id;
     if (data.status !== undefined) page.status = data.status;
+    if (data.content !== undefined) page.content = data.content;
+    if (data.word_count !== undefined) page.word_count = data.word_count;
   }
   return null;
 }

@@ -22,6 +22,7 @@ const toolSteps = [
   { num: 8, label: 'Linking Engine', icon: Link2, color: 'red' },
   { num: 9, label: 'Keyword Intel', icon: Brain, color: 'purple' },
   { num: 10, label: 'Content Briefs', icon: PenTool, color: 'amber' },
+  { num: 11, label: 'Article Writer', icon: FileText, color: 'emerald' },
 ];
 
 export default function Sidebar() {
@@ -43,6 +44,7 @@ export default function Sidebar() {
     if (step === 8) return !!project && pages.length > 0; // Linking Engine
     if (step === 9) return !!project; // Keyword Intel
     if (step === 10) return !!project && pages.length > 0; // Content Briefs
+    if (step === 11) return !!project && pages.length > 0; // Article Writer
     if (step === 99) return true;
     return false;
   };
@@ -147,8 +149,7 @@ export default function Sidebar() {
               red: { activeBg: 'bg-red-500/15', activeText: 'text-red-300', activeBorder: 'border-red-500/30' },
               purple: { activeBg: 'bg-purple-500/15', activeText: 'text-purple-300', activeBorder: 'border-purple-500/30' },
               amber: { activeBg: 'bg-amber-500/15', activeText: 'text-amber-300', activeBorder: 'border-amber-500/30' },
-            };
-            const color = colorMap[step.color] || colorMap.emerald;
+            };const color = colorMap[step.color] || colorMap.emerald;
 
             return (
               <button

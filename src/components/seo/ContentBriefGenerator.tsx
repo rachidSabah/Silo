@@ -378,10 +378,10 @@ ${contentBrief.callToAction}
           Back to Keywords
         </button>
         <button
-          onClick={() => setStep(0)}
+          onClick={() => setStep(11)}
           className="flex items-center gap-2 px-6 py-2.5 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/20 text-sm"
         >
-          Back to Dashboard
+          Article Writer
           <ArrowRight size={18} />
         </button>
       </div>

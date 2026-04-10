@@ -6,7 +6,7 @@ import { calculateSiloHealth, getHealthColor, getHealthBgColor, getHealthDot } f
 import {
   BarChart3, FileText, Layers, Target, TrendingUp,
   AlertTriangle, CheckCircle2, Clock, Eye,
-  Network, Link2, Brain, PenTool,
+  Network, Link2, Brain, PenTool, Zap,
 } from 'lucide-react';
 
 export default function DashboardAnalytics() {
@@ -75,6 +75,10 @@ export default function DashboardAnalytics() {
   const completionPct = totalPages > 0
     ? Math.round(((statusCounts.published + statusCounts.review) / totalPages) * 100)
     : 0;
+
+  // Content generation stats
+  const pagesWithContent = pages.filter(p => p.content && p.content.length > 50).length;
+  const totalWords = pages.reduce((sum, p) => sum + (p.wordCount || 0), 0);
 
   if (!project) {
     return (
@@ -273,7 +277,7 @@ export default function DashboardAnalytics() {
           <ToolCard
             icon={<Network size={20} />}
             label="Silo Builder"
-            desc="Visual architecture with health scoring"
+            desc="Visual architecture with health scoring & mind map"
             color="emerald"
             onClick={() => setStep(7)}
             disabled={!project || silos.length === 0}
@@ -295,11 +299,11 @@ export default function DashboardAnalytics() {
             disabled={!project}
           />
           <ToolCard
-            icon={<PenTool size={20} />}
-            label="Content Briefs"
-            desc="AI-powered briefs per page"
-            color="amber"
-            onClick={() => setStep(10)}
+            icon={<Zap size={20} />}
+            label="Article Writer"
+            desc="Silo-aware AI content generation & CMS push"
+            color="emerald"
+            onClick={() => setStep(11)}
             disabled={!project || pages.length === 0}
           />
         </div>
@@ -419,6 +423,7 @@ function ToolCard({ icon, label, desc, color, onClick, disabled }: {
     red: { bg: 'bg-red-500/10', text: 'text-red-300', border: 'border-red-500/20', hover: 'hover:bg-red-500/20' },
     purple: { bg: 'bg-purple-500/10', text: 'text-purple-300', border: 'border-purple-500/20', hover: 'hover:bg-purple-500/20' },
     amber: { bg: 'bg-amber-500/10', text: 'text-amber-300', border: 'border-amber-500/20', hover: 'hover:bg-amber-500/20' },
+    blue: { bg: 'bg-blue-500/10', text: 'text-blue-300', border: 'border-blue-500/20', hover: 'hover:bg-blue-500/20' },
   };
   const c = colorMap[color] || colorMap.emerald;
 

@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       // Clear existing links for this project first
       await deleteInternalLinksByProject(projectId);
 
-      const created = [];
+      const created: Array<{ id: string; from: string; to: string; anchor: string }> = [];
       for (const link of links) {
         const id = uuidv4();
         await createInternalLink({

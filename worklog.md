@@ -1,64 +1,89 @@
+# SiloForge Worklog
+
 ---
 Task ID: 1
-Agent: Main Agent
-Task: Implement P0/P1 features for SiloForge (Dashboard Analytics, Content Calendar, SEO Scoring, Page Status)
+Agent: Main
+Task: Explore current codebase and read key files
 
 Work Log:
-- Explored full codebase - found auth, user management, AI providers already implemented
-- Added `status` column to D1 pages table (ALTER TABLE pages ADD COLUMN status TEXT DEFAULT 'draft')
-- Added `status` field to Page interface in Zustand store (draft/in_progress/review/published)
-- Updated db.ts: createPage, updatePage, and memory DB to handle status field
-- Updated auto-migration in db.ts to also add status column to pages
-- Created seo-score.ts utility with 10-point SEO scoring (A-F grades)
-- Created DashboardAnalytics.tsx component with SEO health, content pipeline, page types, silo coverage
-- Created ContentCalendar.tsx component with kanban board and list view for status management
-- Created SEOScorePanel.tsx component for detailed page SEO checks
-- Updated Sidebar.tsx with Dashboard (step 0) and Content Calendar (step 6)
-- Updated page.tsx main router to include Dashboard and Content Calendar
-- Updated Step3SemanticGen to add status: 'draft' when generating pages
-- Updated Step4PageManagement to add status when creating/importing pages
-- Updated Step5ExportSave to include status in CSV export and DB save/load
-- Updated pages API route to pass status to createPage
-- Created migration 003_add_page_status.sql
-- TypeScript compiles with zero errors
-- Committed and pushed to GitHub (2 commits)
-- Fixed Cloudflare Pages build failure by adding .npmrc with legacy-peer-deps=true
+- Read all key files: store, AI lib, auth, DB, API routes, all SEO components
+- Mapped complete architecture: 19 API routes, 16 custom components, 7 lib files
+- Identified what exists vs what needs to be built
 
 Stage Summary:
-- All P0/P1 features implemented: Dashboard, Content Calendar, SEO Scoring, Page Status
-- Pushed to GitHub at https://github.com/rachidSabah/Silo
-- Cloudflare Pages auto-deploy triggered, awaiting build result
-- Live at https://siloforge.pages.dev
+- Project has extensive features already built (silo builder, linking engine, keyword intel, briefs, calendar)
+- Missing: Silo-aware content generation, mind map canvas, CMS push, article storage
+
 ---
-Task ID: 3-9
-Agent: Main Agent
-Task: Implement all missing SEO tools for SiloForge
+Task ID: 2
+Agent: Main
+Task: Add content/body fields to pages DB + store + API for article storage
 
 Work Log:
-- Analyzed existing codebase to identify 4 missing feature categories from user's requirements
-- Created lib/silo-health.ts: Comprehensive silo health scoring engine with bleed detection, orphaned pages, cannibalization detection, anchor text distribution analysis
-- Updated lib/ai.ts: Added groupKeywords(), mapSearchIntent(), analyzeContentGap(), generateContentBrief() AI functions
-- Updated lib/db.ts: Added internal_links table CRUD operations, auto-migration for D1, cleanup on page/project delete
-- Updated store/useStore.ts: Added InternalLink, KeywordCluster, ContentGap, ContentBrief interfaces and actions
-- Created 5 new API routes: /api/ai/keyword-cluster, /api/ai/search-intent, /api/ai/content-gap, /api/ai/content-brief, /api/internal-links
-- Created VisualSiloBuilder.tsx: Drag-and-drop page assignment, silo health scoring (green/yellow/red), orphaned page detection, bleed alerts, cannibalization detection, health filtering
-- Created InternalLinkingEngine.tsx: AI-powered link suggestions, bleed link detection with explanations, anchor text distribution chart with over-optimization warnings, keyword cannibalization monitor
-- Created KeywordIntelligence.tsx: 3-tab interface (Clusters/Intent/Gaps), AI keyword clustering, search intent mapping with distribution chart, competitor content gap analysis
-- Created ContentBriefGenerator.tsx: AI-powered brief generation per page, role-aware content outlines, key points, internal link targets, meta descriptions, CTAs, export to text
-- Updated Sidebar.tsx: Added SEO Tools section with 4 new navigation items
-- Updated DashboardAnalytics.tsx: Added Silo Architecture Health panel, SEO Tools quick access cards, bleed link stats
-- Updated page.tsx: Integrated all 4 new step components (steps 7-10)
-- Created migration 004_add_internal_links.sql
-- Applied D1 migration for internal_links table and index
-- Build succeeded with zero errors
-- Pushed to GitHub for auto-deploy
+- Added `content` and `wordCount` fields to Page interface in store
+- Added `GeneratedArticle` and `CMSConfig` interfaces to store
+- Added new store actions: setGeneratedArticles, addGeneratedArticle, setBulkGeneratingProgress, CMS actions
+- Updated db.ts: added content/word_count columns to migration, createPage, updatePage
+- Updated Step3SemanticGen and Step4PageManagement to include content/wordCount in page creation
+- Fixed internal-links route TypeScript error
 
 Stage Summary:
-- All 4 missing feature categories implemented with full UI and backend support
-- Visual Silo Builder covers: Drag-and-Drop Mind Map, Orphaned Page Detection, Silo Health Scoring
-- Internal Linking Engine covers: Smart Link Suggestions, Silo Bleed Alerts, Anchor Text Distribution Chart
-- Keyword Intelligence covers: Keyword Grouper, Search Intent Mapping, Content Gap Analysis
-- Content Brief Generator covers: Automated Content Briefs
-- Silo Progress Tracker was already implemented (Content Calendar / Kanban board)
-- Keyword Cannibalization Monitor implemented within Internal Linking Engine
-- App live at https://siloforge.pages.dev
+- Pages now support full article content storage
+- Database auto-migration adds content and word_count columns
+- Store has full CMS config management
+
+---
+Task ID: 3
+Agent: Main
+Task: Build silo-aware AI article generation (context-aware prompting)
+
+Work Log:
+- Created `generateSiloAwareArticle()` in lib/ai.ts with full silo context passing
+- The AI receives: pillar page info, sibling pages, topics to avoid, internal link targets, brand voice
+- System prompt explicitly prevents keyword cannibalization and enforces internal linking
+- Created `bulkGenerateSiloArticles()` for sequential generation with progress tracking
+
+Stage Summary:
+- Core differentiator: AI generates articles WITH full silo context awareness
+- Prevents keyword cannibalization by explicitly telling AI what sibling pages cover
+- Enforces strategic internal linking with specific anchor texts
+
+---
+Task ID: 4
+Agent: Main
+Task: Build API routes for article generation, bulk generation, and CMS push
+
+Work Log:
+- Created /api/ai/generate-article route for single article generation
+- Created /api/ai/bulk-generate route for bulk silo article generation
+- Created /api/cms/route.ts with WordPress REST API and Webhook/Headless CMS push support
+- WordPress push uses Basic Auth with application passwords
+- Webhook push supports generic POST with API key
+
+Stage Summary:
+- 3 new API routes: generate-article, bulk-generate, cms/push
+- CMS push supports WordPress, webhooks, and headless CMS architectures
+
+---
+Task ID: 5
+Agent: Main
+Task: Create ArticleGenerator component + MindMapCanvas + integrate into navigation
+
+Work Log:
+- Created ArticleGenerator component (step 11) with 3 tabs: Generate, Articles, CMS Push
+- Generate tab: brand voice setting, per-page and bulk silo generation
+- Articles tab: view/edit generated articles with HTML preview, export, internal link display
+- CMS tab: add CMS connections (WordPress/webhook/headless), push articles to CMS
+- Created MindMapCanvas component with interactive SVG mind map
+  - Drag-and-drop nodes, zoom/pan, health scores, cannibalization badges
+  - Auto-layout algorithm arranging silos in circle around project
+  - Connection lines showing silo hierarchy, bleed links in red dashed
+- Integrated MindMapCanvas into VisualSiloBuilder with List/Mind Map toggle
+- Added Article Writer (step 11) to Sidebar, Dashboard, page.tsx routing
+- Updated navigation flow: Content Briefs → Article Writer → Silo Builder
+
+Stage Summary:
+- Complete silo-aware content generation pipeline implemented
+- Interactive mind map canvas with health visualization
+- CMS push integration for WordPress and headless architectures
+- All TypeScript errors resolved, dev server running successfully

@@ -139,6 +139,8 @@ export default function Step4PageManagement() {
       type: 'blog' as const,
       parentId: null,
       status: 'draft' as const,
+      content: '',
+      wordCount: 0,
     };
     addPage(newPage);
   };

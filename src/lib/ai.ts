@@ -262,3 +262,185 @@ export async function generateContentBrief(
   ], req);
   return parseJSON(content, null);
 }
+
+// ===== SILO-AWARE CONTENT GENERATION =====
+
+export interface SiloContext {
+  siloName: string;
+  pillarPage: { title: string; slug: string; keywords: string[] } | null;
+  siblingPages: Array<{ title: string; slug: string; type: string; keywords: string[] }>;
+  internalLinks: Array<{ anchor: string; targetTitle: string; targetSlug: string }>;
+  brandVoice?: string;
+  niche: string;
+}
+
+export interface GeneratedArticleResult {
+  title: string;
+  content: string;
+  wordCount: number;
+  internalLinks: Array<{ anchor: string; targetSlug: string }>;
+  metaDescription: string;
+}
+
+/**
+ * Generate a silo-aware article for a single page.
+ * This is the key differentiator: instead of just passing the target keyword,
+ * we pass the ENTIRE silo context so the AI knows:
+ * - What the pillar page covers (to link up to it)
+ * - What sibling pages cover (to avoid duplication/cannibalization)
+ * - Specific anchor texts to use for internal links
+ * - Brand voice consistency requirements
+ */
+export async function generateSiloAwareArticle(
+  pageTitle: string,
+  pageType: string,
+  pageKeywords: string[],
+  siloContext: SiloContext,
+  wordCountTarget: number,
+  req?: NextRequest
+): Promise<GeneratedArticleResult | null> {
+  const { siloName, pillarPage, siblingPages, internalLinks, brandVoice, niche } = siloContext;
+
+  // Build the context-aware prompt
+  const siblingContext = siblingPages
+    .filter(p => p.title !== pageTitle)
+    .map(p => `  - "${p.title}" (${p.type}): covers ${p.keywords.slice(0, 3).join(', ')}`)
+    .join('\n');
+
+  const linkContext = internalLinks
+    .map(l => `  - Use anchor "${l.anchor}" to link to "${l.targetTitle}" (/${l.targetSlug})`)
+    .join('\n');
+
+  const avoidTopics = siblingPages
+    .filter(p => p.title !== pageTitle)
+    .map(p => p.keywords.slice(0, 2).join(', '))
+    .join('; ');
+
+  const systemPrompt = `You are an expert SEO content writer who writes silo-aware articles. Your writing must be tightly integrated with the site's silo architecture to avoid keyword cannibalization and maximize internal link equity flow.
+
+CRITICAL RULES:
+1. Write about ${pageTitle}'s specific topic ONLY. Do NOT cover sub-topics that belong to sibling articles (listed below) — this prevents keyword cannibalization.
+2. Always include internal links using the EXACT anchor texts provided below. These are strategic links that push authority up to the pillar page and across to sibling pages.
+3. If this is a pillar page, write a comprehensive guide. If a cluster page, write a focused deep-dive. If a blog post, write an engaging article.
+4. The content must be ${wordCountTarget} words minimum.
+5. Use proper HTML formatting: <h2>, <h3>, <p>, <ul>, <li>, <strong>, <a href="/slug">anchor</a> tags.
+6. Include a compelling introduction and a clear CTA at the end.
+7. ${brandVoice ? `Brand voice: ${brandVoice}.` : 'Use a professional yet approachable tone.'}
+8. Optimize for the target keywords naturally — don't stuff them.
+9. Return ONLY a JSON object with: "title" (H1), "content" (HTML string), "wordCount" (approximate), "internalLinks" (array of {anchor, targetSlug} for links you included), "metaDescription" (150-160 chars). No other text.`;
+
+  const userPrompt = `Write a ${pageType} page article for the silo "${siloName}" in the niche "${niche}".
+
+PAGE DETAILS:
+- Title: ${pageTitle}
+- Type: ${pageType}
+- Target Keywords: ${pageKeywords.join(', ')}
+- Word Count Target: ${wordCountTarget} words
+
+SILO CONTEXT:
+${pillarPage ? `- Pillar Page: "${pillarPage.title}" (/${pillarPage.slug}) — keywords: ${pillarPage.keywords.join(', ')}
+  → Link UP to this pillar page using relevant anchor text` : '- This IS the pillar page — it should be the authoritative hub for this silo'}
+
+SIBLING PAGES (DO NOT duplicate their topics):
+${siblingContext || '- None'}
+
+TOPICS TO AVOID (covered by siblings): ${avoidTopics || 'None'}
+
+INTERNAL LINKS TO INCLUDE:
+${linkContext || '- Include at least 2-3 links to other pages in this silo'}
+
+Write the full article now. Return ONLY the JSON object.`;
+
+  const content = await callAI([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ], req);
+
+  return parseJSON(content, null);
+}
+
+/**
+ * Bulk generate articles for an entire silo.
+ * Generates articles one by one (to maintain context awareness) but in sequence,
+ * ensuring each article knows about the others to avoid cannibalization.
+ */
+export async function bulkGenerateSiloArticles(
+  siloName: string,
+  niche: string,
+  pages: Array<{
+    id: string;
+    title: string;
+    slug: string;
+    type: string;
+    keywords: string[];
+  }>,
+  brandVoice: string,
+  onProgress?: (current: number, total: number) => void,
+  req?: NextRequest
+): Promise<Array<GeneratedArticleResult & { pageId: string }>> {
+  const results: Array<GeneratedArticleResult & { pageId: string }> = [];
+
+  const pillarPage = pages.find(p => p.type === 'pillar') || null;
+  const siblingPagesAll = pages.map(p => ({
+    title: p.title,
+    slug: p.slug,
+    type: p.type,
+    keywords: p.keywords,
+  }));
+
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
+    const wordCountTarget = page.type === 'pillar' ? 3000 : page.type === 'cluster' ? 2000 : 1500;
+
+    // Build internal links context — link to pillar and siblings
+    const internalLinks: Array<{ anchor: string; targetTitle: string; targetSlug: string }> = [];
+
+    // Link to pillar page from non-pillar pages
+    if (pillarPage && page.id !== pillarPage.id) {
+      const anchorOptions = pillarPage.keywords.slice(0, 2);
+      internalLinks.push({
+        anchor: anchorOptions[0] || pillarPage.title,
+        targetTitle: pillarPage.title,
+        targetSlug: pillarPage.slug,
+      });
+    }
+
+    // Link to a couple of sibling pages
+    const otherSiblings = pages.filter(p => p.id !== page.id && p.type !== 'pillar').slice(0, 3);
+    for (const sibling of otherSiblings) {
+      internalLinks.push({
+        anchor: sibling.keywords[0] || sibling.title,
+        targetTitle: sibling.title,
+        targetSlug: sibling.slug,
+      });
+    }
+
+    const siloContext: SiloContext = {
+      siloName,
+      pillarPage: pillarPage ? { title: pillarPage.title, slug: pillarPage.slug, keywords: pillarPage.keywords } : null,
+      siblingPages: siblingPagesAll,
+      internalLinks,
+      brandVoice,
+      niche,
+    };
+
+    const article = await generateSiloAwareArticle(
+      page.title,
+      page.type,
+      page.keywords,
+      siloContext,
+      wordCountTarget,
+      req
+    );
+
+    if (article) {
+      results.push({ ...article, pageId: page.id });
+    }
+
+    if (onProgress) {
+      onProgress(i + 1, pages.length);
+    }
+  }
+
+  return results;
+}
