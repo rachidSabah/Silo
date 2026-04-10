@@ -29,12 +29,23 @@ export interface Page {
   parentId: string | null;
 }
 
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+}
+
 interface AppState {
   currentStep: number;
   project: Project | null;
   silos: Silo[];
   pages: Page[];
   savedProjectId: string | null;
+
+  // Auth
+  user: AuthUser | null;
+  token: string | null;
 
   // Step navigation
   setStep: (step: number) => void;
@@ -58,6 +69,11 @@ interface AppState {
   // Project ID
   setSavedProjectId: (id: string | null) => void;
 
+  // Auth actions
+  setUser: (user: AuthUser | null) => void;
+  setToken: (token: string | null) => void;
+  logout: () => void;
+
   // Reset
   resetStore: () => void;
 }
@@ -68,6 +84,8 @@ const initialState = {
   silos: [],
   pages: [],
   savedProjectId: null,
+  user: null,
+  token: null,
 };
 
 export const useStore = create<AppState>()(
@@ -99,10 +117,18 @@ export const useStore = create<AppState>()(
 
       setSavedProjectId: (id) => set({ savedProjectId: id }),
 
-      resetStore: () => set(initialState),
+      setUser: (user) => set({ user }),
+      setToken: (token) => set({ token }),
+      logout: () => set({ ...initialState }),
+
+      resetStore: () => set({ currentStep: 1, project: null, silos: [], pages: [], savedProjectId: null }),
     }),
     {
       name: 'siloforge-store',
+      partialize: (state) => ({
+        user: state.user,
+        token: state.token,
+      }),
     }
   )
 );

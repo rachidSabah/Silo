@@ -12,9 +12,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'seedKeywords is required' }, { status: 400 });
     }
 
-    const keywords = await expandKeywords(seedKeywords, niche || '', language || 'en');
+    const keywords = await expandKeywords(seedKeywords, niche || '', language || 'en', req);
     return NextResponse.json({ keywords });
   } catch (error) {
+    console.error('Expand keywords error:', error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

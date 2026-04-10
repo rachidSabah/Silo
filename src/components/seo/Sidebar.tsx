@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { Check, Zap, Menu, X } from 'lucide-react';
+import { Check, Zap, Menu, X, Shield, Key, LogOut, User } from 'lucide-react';
 
 const steps = [
   { num: 1, label: 'Project Setup' },
@@ -13,8 +13,11 @@ const steps = [
 ];
 
 export default function Sidebar() {
-  const { currentStep, setStep, project, silos, pages } = useStore();
+  const { currentStep, setStep, project, silos, pages, user, logout } = useStore();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  const isAdmin = user?.role === 'admin';
 
   const isStepAccessible = (step: number): boolean => {
     if (step === 1) return true;
@@ -39,7 +42,11 @@ export default function Sidebar() {
     }
   };
 
-  // Close mobile sidebar when step changes (handled in handleStepClick)
+  const handleLogout = () => {
+    fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    logout();
+    setMobileOpen(false);
+  };
 
   const sidebarContent = (
     <>
@@ -58,6 +65,7 @@ export default function Sidebar() {
 
       {/* Step Navigation */}
       <nav className="flex-1 p-3 md:p-4 space-y-1 overflow-y-auto">
+        <p className="text-[10px] text-slate-600 uppercase tracking-wider px-3 md:px-4 mb-2">Workflow</p>
         {steps.map((step) => {
           const isActive = currentStep === step.num;
           const isCompleted = isStepCompleted(step.num);
@@ -93,11 +101,31 @@ export default function Sidebar() {
             </button>
           );
         })}
+
+        {/* Admin Section */}
+        <div className="pt-4 mt-4 border-t border-slate-700/50">
+          <p className="text-[10px] text-slate-600 uppercase tracking-wider px-3 md:px-4 mb-2">Manage</p>
+          <button
+            onClick={() => { setStep(99); setMobileOpen(false); }}
+            className={`w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2.5 md:py-3 rounded-xl text-left transition-all duration-200 ${
+              currentStep === 99
+                ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-300 border border-transparent'
+            }`}
+          >
+            <div className={`w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+              currentStep === 99 ? 'bg-amber-500 text-white' : 'bg-slate-700/50 text-slate-500'
+            }`}>
+              <Shield size={14} />
+            </div>
+            <span className="text-xs md:text-sm font-medium">Admin Panel</span>
+          </button>
+        </div>
       </nav>
 
       {/* Footer stats */}
       <div className="p-3 md:p-4 border-t border-slate-700">
-        <div className="grid grid-cols-3 gap-1.5 md:gap-2 text-center">
+        <div className="grid grid-cols-3 gap-1.5 md:gap-2 text-center mb-3">
           <div className="bg-slate-800 rounded-lg p-1.5 md:p-2">
             <div className="text-base md:text-lg font-bold text-white">{silos.length}</div>
             <div className="text-[9px] md:text-[10px] text-slate-500 uppercase tracking-wider">Silos</div>
@@ -112,6 +140,45 @@ export default function Sidebar() {
             </div>
             <div className="text-[9px] md:text-[10px] text-slate-500 uppercase tracking-wider">Pillars</div>
           </div>
+        </div>
+
+        {/* User info */}
+        <div className="relative">
+          <button
+            onClick={() => setShowUserMenu(!showUserMenu)}
+            className="w-full flex items-center gap-2 p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"
+          >
+            <div className="w-7 h-7 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+              <User size={14} className="text-blue-400" />
+            </div>
+            <div className="flex-1 min-w-0 text-left">
+              <p className="text-white text-xs font-medium truncate">{user?.name || 'User'}</p>
+              <p className="text-slate-500 text-[10px] truncate">{user?.email || ''}</p>
+            </div>
+            {isAdmin && (
+              <span className="px-1 py-0.5 bg-amber-500/20 text-amber-300 rounded text-[8px] font-medium flex-shrink-0">ADM</span>
+            )}
+          </button>
+
+          {/* User dropdown */}
+          {showUserMenu && (
+            <div className="absolute bottom-full left-0 right-0 mb-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden z-10">
+              <button
+                onClick={() => { setStep(99); setShowUserMenu(false); setMobileOpen(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-slate-300 hover:bg-slate-700 text-xs transition-colors"
+              >
+                <Shield size={14} />
+                Admin Panel
+              </button>
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-2 px-3 py-2 text-red-300 hover:bg-slate-700 text-xs transition-colors"
+              >
+                <LogOut size={14} />
+                Sign Out
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </>

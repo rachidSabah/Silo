@@ -1,15 +1,45 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useStore } from '@/store/useStore';
+import LoginPage from '@/components/seo/LoginPage';
 import Sidebar from '@/components/seo/Sidebar';
 import Step1ProjectSetup from '@/components/seo/Step1ProjectSetup';
 import Step2SiloStructure from '@/components/seo/Step2SiloStructure';
 import Step3SemanticGen from '@/components/seo/Step3SemanticGen';
 import Step4PageManagement from '@/components/seo/Step4PageManagement';
 import Step5ExportSave from '@/components/seo/Step5ExportSave';
+import AdminPanel from '@/components/seo/AdminPanel';
 
 export default function Home() {
-  const { currentStep } = useStore();
+  const { currentStep, user, token, setUser, setToken } = useStore();
+
+  // Verify token on mount
+  useEffect(() => {
+    if (token && user) {
+      fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => {
+          if (!res.ok) {
+            setUser(null);
+            setToken(null);
+          }
+          return res.json();
+        })
+        .then((data) => {
+          if (data.user) setUser(data.user);
+        })
+        .catch(() => {
+          // Token invalid, clear auth
+        });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Show login if not authenticated
+  if (!user || !token) {
+    return <LoginPage />;
+  }
 
   const renderStep = () => {
     switch (currentStep) {
@@ -23,6 +53,8 @@ export default function Home() {
         return <Step4PageManagement />;
       case 5:
         return <Step5ExportSave />;
+      case 99:
+        return <AdminPanel />;
       default:
         return <Step1ProjectSetup />;
     }

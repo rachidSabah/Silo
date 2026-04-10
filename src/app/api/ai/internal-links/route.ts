@@ -8,13 +8,14 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { pages, silos } = body;
 
-    if (!pages || !Array.isArray(pages)) {
-      return NextResponse.json({ error: 'pages array is required' }, { status: 400 });
+    if (!pages || !Array.isArray(pages) || pages.length === 0) {
+      return NextResponse.json({ error: 'Pages are required' }, { status: 400 });
     }
 
-    const links = await suggestInternalLinks(pages, silos || []);
+    const links = await suggestInternalLinks(pages, silos || [], req);
     return NextResponse.json({ links });
   } catch (error) {
+    console.error('Internal links error:', error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

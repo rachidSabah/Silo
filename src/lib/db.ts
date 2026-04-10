@@ -286,3 +286,192 @@ export async function deletePage(id: string) {
   const idx = mem.pages.findIndex((p) => p.id === id);
   if (idx !== -1) mem.pages.splice(idx, 1);
 }
+
+// ===== Users =====
+
+interface UserRecord {
+  id: string;
+  email: string;
+  password_hash: string;
+  salt: string;
+  name: string;
+  role: string;
+  created_at: string;
+  updated_at: string;
+}
+
+const memUsers: UserRecord[] = [];
+
+export async function getUserByEmail(email: string): Promise<UserRecord | null> {
+  if (isCloudflare()) {
+    const db = getD1();
+    return db.prepare('SELECT * FROM users WHERE email = ?').bind(email).first() as Promise<UserRecord | null>;
+  }
+  return memUsers.find((u) => u.email === email) || null;
+}
+
+export async function getUserById(id: string): Promise<UserRecord | null> {
+  if (isCloudflare()) {
+    const db = getD1();
+    return db.prepare('SELECT * FROM users WHERE id = ?').bind(id).first() as Promise<UserRecord | null>;
+  }
+  return memUsers.find((u) => u.id === id) || null;
+}
+
+export async function getAllUsers(): Promise<UserRecord[]> {
+  if (isCloudflare()) {
+    const db = getD1();
+    const { results } = await db.prepare('SELECT id, email, name, role, created_at, updated_at FROM users ORDER BY created_at DESC').all();
+    return results as UserRecord[];
+  }
+  return memUsers.map(({ password_hash, salt, ...rest }) => rest as UserRecord);
+}
+
+export async function createUser(data: { id: string; email: string; password_hash: string; salt: string; name: string; role?: string }) {
+  if (isCloudflare()) {
+    const db = getD1();
+    await db.prepare('INSERT INTO users (id, email, password_hash, salt, name, role) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(data.id, data.email, data.password_hash, data.salt, data.name, data.role || 'user').run();
+    return;
+  }
+  memUsers.push({
+    id: data.id,
+    email: data.email,
+    password_hash: data.password_hash,
+    salt: data.salt,
+    name: data.name,
+    role: data.role || 'user',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+}
+
+export async function updateUser(id: string, data: { email?: string; name?: string; role?: string; password_hash?: string; salt?: string }) {
+  const fields: string[] = [];
+  const values: string[] = [];
+
+  if (data.email !== undefined) { fields.push('email = ?'); values.push(data.email); }
+  if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name); }
+  if (data.role !== undefined) { fields.push('role = ?'); values.push(data.role); }
+  if (data.password_hash !== undefined) { fields.push('password_hash = ?'); values.push(data.password_hash); }
+  if (data.salt !== undefined) { fields.push('salt = ?'); values.push(data.salt); }
+
+  if (fields.length === 0) return;
+
+  fields.push('updated_at = ?');
+  values.push(new Date().toISOString());
+
+  if (isCloudflare()) {
+    values.push(id);
+    const db = getD1();
+    await db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+    return;
+  }
+  const user = memUsers.find((u) => u.id === id);
+  if (user) {
+    if (data.email !== undefined) user.email = data.email;
+    if (data.name !== undefined) user.name = data.name;
+    if (data.role !== undefined) user.role = data.role;
+    if (data.password_hash !== undefined) user.password_hash = data.password_hash;
+    if (data.salt !== undefined) user.salt = data.salt;
+    user.updated_at = new Date().toISOString();
+  }
+}
+
+export async function deleteUser(id: string) {
+  if (isCloudflare()) {
+    const db = getD1();
+    await db.prepare('DELETE FROM ai_settings WHERE user_id = ?').bind(id).run();
+    await db.prepare('DELETE FROM users WHERE id = ?').bind(id).run();
+    return;
+  }
+  const idx = memUsers.findIndex((u) => u.id === id);
+  if (idx !== -1) memUsers.splice(idx, 1);
+}
+
+// ===== AI Settings =====
+
+interface AISettingRecord {
+  id: string;
+  user_id: string;
+  provider: string;
+  api_key: string;
+  model: string;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+}
+
+const memSettings: AISettingRecord[] = [];
+
+export async function getAISettingsByUser(userId: string): Promise<AISettingRecord[]> {
+  if (isCloudflare()) {
+    const db = getD1();
+    const { results } = await db.prepare('SELECT * FROM ai_settings WHERE user_id = ?').bind(userId).all();
+    return results as AISettingRecord[];
+  }
+  return memSettings.filter((s) => s.user_id === userId);
+}
+
+export async function getActiveAISetting(userId: string): Promise<AISettingRecord | null> {
+  if (isCloudflare()) {
+    const db = getD1();
+    return db.prepare('SELECT * FROM ai_settings WHERE user_id = ? AND is_active = 1 LIMIT 1').bind(userId).first() as Promise<AISettingRecord | null>;
+  }
+  return memSettings.find((s) => s.user_id === userId && s.is_active === 1) || null;
+}
+
+export async function upsertAISetting(data: { id: string; user_id: string; provider: string; api_key: string; model: string; is_active?: number }) {
+  if (isCloudflare()) {
+    const db = getD1();
+    // If this is active, deactivate others first
+    if (data.is_active) {
+      await db.prepare('UPDATE ai_settings SET is_active = 0 WHERE user_id = ?').bind(data.user_id).run();
+    }
+    await db.prepare('INSERT OR REPLACE INTO ai_settings (id, user_id, provider, api_key, model, is_active) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(data.id, data.user_id, data.provider, data.api_key, data.model, data.is_active ? 1 : 0).run();
+    return;
+  }
+  const idx = memSettings.findIndex((s) => s.id === data.id);
+  if (data.is_active) {
+    memSettings.forEach((s) => { if (s.user_id === data.user_id) s.is_active = 0; });
+  }
+  const record: AISettingRecord = {
+    id: data.id,
+    user_id: data.user_id,
+    provider: data.provider,
+    api_key: data.api_key,
+    model: data.model,
+    is_active: data.is_active ? 1 : 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  if (idx !== -1) {
+    record.created_at = memSettings[idx].created_at;
+    memSettings[idx] = record;
+  } else {
+    memSettings.push(record);
+  }
+}
+
+export async function deleteAISetting(id: string) {
+  if (isCloudflare()) {
+    const db = getD1();
+    await db.prepare('DELETE FROM ai_settings WHERE id = ?').bind(id).run();
+    return;
+  }
+  const idx = memSettings.findIndex((s) => s.id === id);
+  if (idx !== -1) memSettings.splice(idx, 1);
+}
+
+export async function setActiveAISetting(id: string, userId: string) {
+  if (isCloudflare()) {
+    const db = getD1();
+    await db.prepare('UPDATE ai_settings SET is_active = 0 WHERE user_id = ?').bind(userId).run();
+    await db.prepare('UPDATE ai_settings SET is_active = 1 WHERE id = ?').bind(id).run();
+    return;
+  }
+  memSettings.forEach((s) => { if (s.user_id === userId) s.is_active = 0; });
+  const setting = memSettings.find((s) => s.id === id);
+  if (setting) setting.is_active = 1;
+}
