@@ -1,43 +1,31 @@
-# SiloForge Worklog
-
 ---
 Task ID: 1
 Agent: Main Agent
-Task: Fix TypeScript errors, build, push to GitHub, deploy to Cloudflare Pages
+Task: Implement P0/P1 features for SiloForge (Dashboard Analytics, Content Calendar, SEO Scoring, Page Status)
 
 Work Log:
-- Verified TypeScript compilation passes with zero errors (`npx tsc --noEmit`)
-- Reviewed all API routes: projects, silos, pages, import-csv, export-csv
-- Reviewed all frontend components: Step1-5, Sidebar, VisualTree, ProjectList, TagInput
-- Updated .gitignore to include migrations/ and exclude local dirs (download/, upload/, etc.)
-- Updated git remote from old siloforge repo to rachidSabah/Silo
-- Committed and pushed all code to GitHub (rachidSabah/Silo)
-- Fixed wrangler.toml D1 database_id from old (e6e4e3d7...) to actual (9c4c51df...)
-- Ran D1 migration: initialized all 3 tables (projects, silos with keywords, pages)
-- Built for Cloudflare Pages with @cloudflare/next-on-pages (successful)
-- Deployed to Cloudflare Pages manually via wrangler
-- Deleted old direct-upload Pages project and created new one connected to GitHub
-- Bound D1 database (siloforge-db) to both production and preview environments
-- Verified all CRUD operations on live site:
-  - POST /api/projects ✅
-  - GET /api/projects ✅
-  - GET /api/projects/[id] ✅
-  - DELETE /api/projects/[id] ✅
-  - POST /api/silos ✅
-  - GET /api/silos ✅
-  - PUT /api/silos/[id] ✅
-  - DELETE /api/silos/[id] ✅
-  - POST /api/pages ✅
-  - GET /api/pages ✅
-  - PUT /api/pages/[id] ✅
-  - DELETE /api/pages/[id] ✅
-  - GET /api/export-csv ✅
-  - POST /api/import-csv ✅
+- Explored full codebase - found auth, user management, AI providers already implemented
+- Added `status` column to D1 pages table (ALTER TABLE pages ADD COLUMN status TEXT DEFAULT 'draft')
+- Added `status` field to Page interface in Zustand store (draft/in_progress/review/published)
+- Updated db.ts: createPage, updatePage, and memory DB to handle status field
+- Updated auto-migration in db.ts to also add status column to pages
+- Created seo-score.ts utility with 10-point SEO scoring (A-F grades)
+- Created DashboardAnalytics.tsx component with SEO health, content pipeline, page types, silo coverage
+- Created ContentCalendar.tsx component with kanban board and list view for status management
+- Created SEOScorePanel.tsx component for detailed page SEO checks
+- Updated Sidebar.tsx with Dashboard (step 0) and Content Calendar (step 6)
+- Updated page.tsx main router to include Dashboard and Content Calendar
+- Updated Step3SemanticGen to add status: 'draft' when generating pages
+- Updated Step4PageManagement to add status when creating/importing pages
+- Updated Step5ExportSave to include status in CSV export and DB save/load
+- Updated pages API route to pass status to createPage
+- Created migration 003_add_page_status.sql
+- TypeScript compiles with zero errors
+- Committed and pushed to GitHub (2 commits)
+- Fixed Cloudflare Pages build failure by adding .npmrc with legacy-peer-deps=true
 
 Stage Summary:
-- All TypeScript compilation errors fixed
-- All code pushed to https://github.com/rachidSabah/Silo
-- Live site: https://siloforge.pages.dev
-- D1 database initialized with correct schema including keywords column
-- Cloudflare Pages connected to GitHub for automatic deployments
-- All CRUD and CSV operations verified working on production
+- All P0/P1 features implemented: Dashboard, Content Calendar, SEO Scoring, Page Status
+- Pushed to GitHub at https://github.com/rachidSabah/Silo
+- Cloudflare Pages auto-deploy triggered, awaiting build result
+- Live at https://siloforge.pages.dev
