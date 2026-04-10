@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '@/store/useStore';
-import { v4 as uuidv4 } from 'uuid';
 import PageTypeBadge from './PageTypeBadge';
 import VisualTree from './VisualTree';
 import {
@@ -13,7 +12,6 @@ import {
   FolderOpen,
   Trash2,
   BarChart3,
-  Eye,
   Loader2,
   Plus,
   RefreshCw,
@@ -36,21 +34,15 @@ export default function Step5ExportSave() {
   const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'export' | 'saved' | 'tree'>('export');
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  // Type counts
-  const typeCounts = pages.reduce((acc, p) => {
-    acc[p.type] = (acc[p.type] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-
-  const totalKeywords = pages.reduce((sum, p) => sum + p.keywords.length, 0);
-
-  // Load saved projects on mount
+  // ALL hooks must be called before any conditional returns
+  // Redirect guard
   useEffect(() => {
-    loadProjects();
-  }, []);
+    if (!project) setStep(1);
+  }, [project, setStep]);
 
-  const loadProjects = async () => {
+  const loadProjects = useCallback(async () => {
     setIsLoadingProjects(true);
     try {
       const res = await fetch('/api/projects');
@@ -61,77 +53,13 @@ export default function Step5ExportSave() {
     } finally {
       setIsLoadingProjects(false);
     }
-  };
+  }, []);
 
-  // Save project to database
-  const handleSave = async () => {
-    if (!project) return;
-    setIsSaving(true);
-    setSaveMessage(null);
+  // Load saved projects on mount
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
 
-    try {
-      // Save project
-      const projectRes = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: project.id,
-          name: project.name,
-          domain: project.domain,
-          language: project.language,
-          niche: project.niche,
-          seedKeywords: project.seedKeywords,
-        }),
-      });
-
-      if (!projectRes.ok) {
-        throw new Error('Failed to save project');
-      }
-
-      // Save silos
-      for (const silo of silos) {
-        await fetch('/api/silos', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: silo.id,
-            project_id: project.id,
-            name: silo.name,
-          }),
-        });
-      }
-
-      // Save pages
-      for (const page of pages) {
-        await fetch('/api/pages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: page.id,
-            project_id: project.id,
-            silo_id: page.siloId || null,
-            title: page.title,
-            slug: page.slug,
-            meta_description: page.metaDescription,
-            keywords: JSON.stringify(page.keywords),
-            type: page.type,
-            parent_id: page.parentId,
-          }),
-        });
-      }
-
-      setSavedProjectId(project.id);
-      setSaveMessage({ type: 'success', text: 'Project saved to database successfully!' });
-      loadProjects();
-    } catch (err) {
-      console.error('Save failed:', err);
-      setSaveMessage({ type: 'error', text: 'Failed to save project. Please try again.' });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Download CSV
   const handleDownloadCSV = useCallback(() => {
     if (!project || pages.length === 0) return;
 
@@ -163,22 +91,92 @@ export default function Step5ExportSave() {
     }
   }, [pages, silos, project]);
 
+  // Type counts - computed before conditional return
+  const typeCounts = pages.reduce((acc, p) => {
+    acc[p.type] = (acc[p.type] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const totalKeywords = pages.reduce((sum, p) => sum + p.keywords.length, 0);
+
+  // Save project to database
+  const handleSave = async () => {
+    if (!project) return;
+    setIsSaving(true);
+    setSaveMessage(null);
+
+    try {
+      const projectRes = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: project.id,
+          name: project.name,
+          domain: project.domain,
+          language: project.language,
+          niche: project.niche,
+          seedKeywords: project.seedKeywords,
+        }),
+      });
+
+      if (!projectRes.ok) {
+        throw new Error('Failed to save project');
+      }
+
+      for (const silo of silos) {
+        await fetch('/api/silos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: silo.id,
+            project_id: project.id,
+            name: silo.name,
+            keywords: silo.keywords ? JSON.stringify(silo.keywords) : null,
+          }),
+        });
+      }
+
+      for (const page of pages) {
+        await fetch('/api/pages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: page.id,
+            project_id: project.id,
+            silo_id: page.siloId || null,
+            title: page.title,
+            slug: page.slug,
+            meta_description: page.metaDescription,
+            keywords: JSON.stringify(page.keywords),
+            type: page.type,
+            parent_id: page.parentId,
+          }),
+        });
+      }
+
+      setSavedProjectId(project.id);
+      setSaveMessage({ type: 'success', text: 'Project saved to database successfully!' });
+      loadProjects();
+    } catch (err) {
+      console.error('Save failed:', err);
+      setSaveMessage({ type: 'error', text: 'Failed to save project. Please try again.' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Load project from DB
   const handleLoadProject = async (projectId: string) => {
     try {
-      // Load project
       const projectRes = await fetch(`/api/projects/${projectId}`);
       const proj = await projectRes.json();
 
-      // Load silos
       const silosRes = await fetch(`/api/silos?project_id=${projectId}`);
       const dbSilos = await silosRes.json();
 
-      // Load pages
       const pagesRes = await fetch(`/api/pages?project_id=${projectId}`);
       const dbPages = await pagesRes.json();
 
-      // Update store
       setProject({
         id: proj.id,
         name: proj.name,
@@ -189,11 +187,11 @@ export default function Step5ExportSave() {
       });
 
       setSilos(
-        (dbSilos || []).map((s: { id: string; project_id: string; name: string }) => ({
+        (dbSilos || []).map((s: { id: string; project_id: string; name: string; keywords?: string | null }) => ({
           id: s.id,
           projectId: s.project_id,
           name: s.name,
-          keywords: [],
+          keywords: s.keywords ? JSON.parse(s.keywords) : [],
         }))
       );
 
@@ -220,33 +218,40 @@ export default function Step5ExportSave() {
 
   // Delete project
   const handleDeleteProject = async (projectId: string) => {
-    try {
-      await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
-      loadProjects();
-    } catch (err) {
-      console.error('Failed to delete project:', err);
+    if (deleteConfirm === projectId) {
+      try {
+        await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+        loadProjects();
+        setDeleteConfirm(null);
+        if (savedProjectId === projectId) {
+          resetStore();
+        }
+      } catch (err) {
+        console.error('Failed to delete project:', err);
+      }
+    } else {
+      setDeleteConfirm(projectId);
+      setTimeout(() => setDeleteConfirm(null), 3000);
     }
   };
 
-  if (!project) {
-    setStep(1);
-    return null;
-  }
+  // Conditional return AFTER all hooks
+  if (!project) return null;
 
   return (
     <div>
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-white mb-2">Export & Save</h2>
-        <p className="text-slate-400">
+      <div className="mb-6 md:mb-8">
+        <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Export & Save</h2>
+        <p className="text-sm md:text-base text-slate-400">
           Save your project to the database, export pages as CSV, and review your complete SEO architecture.
         </p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-2 mb-6 overflow-x-auto">
         <button
           onClick={() => setActiveTab('export')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
             activeTab === 'export'
               ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
               : 'text-slate-400 hover:text-white border border-transparent'
@@ -256,7 +261,7 @@ export default function Step5ExportSave() {
         </button>
         <button
           onClick={() => setActiveTab('saved')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
             activeTab === 'saved'
               ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
               : 'text-slate-400 hover:text-white border border-transparent'
@@ -266,7 +271,7 @@ export default function Step5ExportSave() {
         </button>
         <button
           onClick={() => setActiveTab('tree')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
             activeTab === 'tree'
               ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
               : 'text-slate-400 hover:text-white border border-transparent'
@@ -290,11 +295,11 @@ export default function Step5ExportSave() {
       {activeTab === 'export' && (
         <>
           {/* Action Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
             {/* Save Card */}
-            <div className="p-6 bg-slate-800 border border-slate-700 rounded-xl hover:border-blue-500/30 transition-colors">
-              <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center mb-4">
-                <Database size={24} className="text-blue-400" />
+            <div className="p-5 md:p-6 bg-slate-800 border border-slate-700 rounded-xl hover:border-blue-500/30 transition-colors">
+              <div className="w-10 h-10 md:w-12 md:h-12 bg-blue-500/20 rounded-xl flex items-center justify-center mb-3 md:mb-4">
+                <Database size={20} className="text-blue-400 md:w-6 md:h-6" />
               </div>
               <h3 className="text-white font-semibold mb-2">Save to Database</h3>
               <p className="text-slate-500 text-sm mb-4">
@@ -325,9 +330,9 @@ export default function Step5ExportSave() {
             </div>
 
             {/* Export CSV Card */}
-            <div className="p-6 bg-slate-800 border border-slate-700 rounded-xl hover:border-emerald-500/30 transition-colors">
-              <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center mb-4">
-                <Download size={24} className="text-emerald-400" />
+            <div className="p-5 md:p-6 bg-slate-800 border border-slate-700 rounded-xl hover:border-emerald-500/30 transition-colors">
+              <div className="w-10 h-10 md:w-12 md:h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center mb-3 md:mb-4">
+                <Download size={20} className="text-emerald-400 md:w-6 md:h-6" />
               </div>
               <h3 className="text-white font-semibold mb-2">Download CSV</h3>
               <p className="text-slate-500 text-sm mb-4">
@@ -345,37 +350,37 @@ export default function Step5ExportSave() {
           </div>
 
           {/* Project Summary */}
-          <div className="p-6 bg-slate-800/50 border border-slate-700 rounded-xl mb-6">
-            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <BarChart3 size={20} className="text-blue-400" />
+          <div className="p-4 md:p-6 bg-slate-800/50 border border-slate-700 rounded-xl mb-6">
+            <h3 className="text-base md:text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <BarChart3 size={18} className="text-blue-400" />
               Project Summary
             </h3>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <div className="p-4 bg-slate-900 rounded-lg text-center">
-                <p className="text-3xl font-bold text-white">{pages.length}</p>
-                <p className="text-sm text-slate-500">Total Pages</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
+              <div className="p-3 md:p-4 bg-slate-900 rounded-lg text-center">
+                <p className="text-2xl md:text-3xl font-bold text-white">{pages.length}</p>
+                <p className="text-xs md:text-sm text-slate-500">Total Pages</p>
               </div>
-              <div className="p-4 bg-slate-900 rounded-lg text-center">
-                <p className="text-3xl font-bold text-white">{silos.length}</p>
-                <p className="text-sm text-slate-500">Content Silos</p>
+              <div className="p-3 md:p-4 bg-slate-900 rounded-lg text-center">
+                <p className="text-2xl md:text-3xl font-bold text-white">{silos.length}</p>
+                <p className="text-xs md:text-sm text-slate-500">Content Silos</p>
               </div>
-              <div className="p-4 bg-slate-900 rounded-lg text-center">
-                <p className="text-3xl font-bold text-white">{typeCounts['pillar'] || 0}</p>
-                <p className="text-sm text-slate-500">Pillar Pages</p>
+              <div className="p-3 md:p-4 bg-slate-900 rounded-lg text-center">
+                <p className="text-2xl md:text-3xl font-bold text-white">{typeCounts['pillar'] || 0}</p>
+                <p className="text-xs md:text-sm text-slate-500">Pillar Pages</p>
               </div>
-              <div className="p-4 bg-slate-900 rounded-lg text-center">
-                <p className="text-3xl font-bold text-white">{totalKeywords}</p>
-                <p className="text-sm text-slate-500">Total Keywords</p>
+              <div className="p-3 md:p-4 bg-slate-900 rounded-lg text-center">
+                <p className="text-2xl md:text-3xl font-bold text-white">{totalKeywords}</p>
+                <p className="text-xs md:text-sm text-slate-500">Total Keywords</p>
               </div>
             </div>
 
             {/* Type breakdown */}
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2 md:gap-3">
               {(['pillar', 'cluster', 'blog', 'category', 'landing'] as const).map((type) => (
                 <div key={type} className="flex items-center gap-2 px-3 py-1.5 bg-slate-900 rounded-lg">
                   <PageTypeBadge type={type} />
-                  <span className="text-white font-bold">{typeCounts[type] || 0}</span>
+                  <span className="text-white font-bold text-sm">{typeCounts[type] || 0}</span>
                 </div>
               ))}
             </div>
@@ -400,7 +405,7 @@ export default function Step5ExportSave() {
               <p>Loading projects...</p>
             </div>
           ) : savedProjects.length === 0 ? (
-            <div className="text-center py-16 text-slate-500">
+            <div className="text-center py-12 md:py-16 text-slate-500">
               <FolderOpen size={48} className="mx-auto mb-4 opacity-30" />
               <p className="text-lg mb-2">No saved projects yet</p>
               <p className="text-sm">Save your current project to see it here.</p>
@@ -410,7 +415,7 @@ export default function Step5ExportSave() {
               {savedProjects.map((proj) => (
                 <div
                   key={proj.id}
-                  className="flex items-center justify-between p-4 bg-slate-800 border border-slate-700 rounded-xl hover:border-slate-600 transition-colors"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-slate-800 border border-slate-700 rounded-xl hover:border-slate-600 transition-colors gap-3"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="text-white font-medium truncate">{proj.name}</p>
@@ -418,7 +423,7 @@ export default function Step5ExportSave() {
                       {proj.domain} · {proj.language?.toUpperCase()} · Created {new Date(proj.created_at).toLocaleDateString()}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 ml-4">
+                  <div className="flex items-center gap-2 flex-shrink-0">
                     <button
                       onClick={() => handleLoadProject(proj.id)}
                       className="px-3 py-1.5 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-lg text-sm font-medium hover:bg-blue-500/30 transition-colors"
@@ -427,11 +432,19 @@ export default function Step5ExportSave() {
                     </button>
                     <button
                       onClick={() => handleDeleteProject(proj.id)}
-                      className="p-1.5 text-slate-500 hover:text-red-400 transition-colors"
+                      className={`p-1.5 rounded transition-all ${
+                        deleteConfirm === proj.id
+                          ? 'text-red-400 bg-red-500/20'
+                          : 'text-slate-500 hover:text-red-400'
+                      }`}
+                      title={deleteConfirm === proj.id ? 'Click again to confirm' : 'Delete project'}
                     >
                       <Trash2 size={16} />
                     </button>
                   </div>
+                  {deleteConfirm === proj.id && (
+                    <p className="text-red-400 text-xs sm:hidden">Click trash again to confirm</p>
+                  )}
                 </div>
               ))}
             </div>
@@ -452,10 +465,10 @@ export default function Step5ExportSave() {
       )}
 
       {/* Navigation */}
-      <div className="flex justify-between pt-8 mt-8 border-t border-slate-700">
+      <div className="flex justify-between pt-6 md:pt-8 mt-6 md:mt-8 border-t border-slate-700">
         <button
           onClick={() => setStep(4)}
-          className="flex items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white transition-colors"
+          className="flex items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white transition-colors text-sm"
         >
           <ArrowLeft size={18} />
           Back

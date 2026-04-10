@@ -1,0 +1,6 @@
+.next/
+.vercel/
+node_modules/
+dist/
+data/
+*.min.js

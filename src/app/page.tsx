@@ -9,7 +9,7 @@ import Step4PageManagement from '@/components/seo/Step4PageManagement';
 import Step5ExportSave from '@/components/seo/Step5ExportSave';
 
 export default function Home() {
-  const { currentStep, setStep, project } = useStore();
+  const { currentStep } = useStore();
 
   const renderStep = () => {
     switch (currentStep) {
@@ -29,13 +29,10 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-950 overflow-hidden">
-      {/* Sidebar */}
+    <div className="flex h-dvh bg-slate-950 overflow-hidden">
       <Sidebar />
-
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-6xl mx-auto p-8">
+      <main className="flex-1 overflow-y-auto overscroll-contain">
+        <div className="max-w-6xl mx-auto p-4 md:p-8 pt-16 md:pt-8 pb-20 md:pb-8">
           {renderStep()}
         </div>
       </main>

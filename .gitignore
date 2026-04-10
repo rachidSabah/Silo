@@ -57,5 +57,14 @@ server.log
 *.db
 data/
 
-# seo-silo-builder (old project)
+# Cloudflare wrangler local state
+.wrangler/
+
+# Old project
 /seo-silo-builder/
+
+# Examples
+/examples/
+
+# Migration files (applied separately)
+migrations/

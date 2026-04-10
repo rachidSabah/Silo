@@ -18,6 +18,7 @@ export default function ProjectList() {
   const { setProject, setSilos, setPages, setStep, setSavedProjectId, resetStore } = useStore();
   const [projects, setProjects] = useState<SavedProject[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
     loadProjects();
@@ -55,11 +56,11 @@ export default function ProjectList() {
       });
 
       setSilos(
-        silosData.map((s: { id: string; project_id: string; name: string }) => ({
+        silosData.map((s: { id: string; project_id: string; name: string; keywords?: string | null }) => ({
           id: s.id,
           projectId: s.project_id,
           name: s.name,
-          keywords: [],
+          keywords: s.keywords ? JSON.parse(s.keywords) : [],
         }))
       );
 
@@ -85,13 +86,18 @@ export default function ProjectList() {
   };
 
   const handleDeleteProject = async (id: string) => {
-    if (!confirm('Delete this project and all its data?')) return;
-    try {
-      await fetch(`/api/projects/${id}`, { method: 'DELETE' });
-      setProjects(projects.filter((p) => p.id !== id));
-      resetStore();
-    } catch (err) {
-      console.error('Failed to delete project:', err);
+    if (deleteConfirm === id) {
+      try {
+        await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+        setProjects(projects.filter((p) => p.id !== id));
+        resetStore();
+        setDeleteConfirm(null);
+      } catch (err) {
+        console.error('Failed to delete project:', err);
+      }
+    } else {
+      setDeleteConfirm(id);
+      setTimeout(() => setDeleteConfirm(null), 3000);
     }
   };
 
@@ -118,18 +124,18 @@ export default function ProjectList() {
       {projects.map((project) => (
         <div
           key={project.id}
-          className="flex items-center justify-between p-4 bg-slate-800 border border-slate-700 rounded-lg hover:border-slate-600 transition-colors"
+          className="flex flex-col sm:flex-row sm:items-center justify-between p-3 md:p-4 bg-slate-800 border border-slate-700 rounded-lg hover:border-slate-600 transition-colors gap-2"
         >
           <div className="flex-1 min-w-0">
-            <h4 className="text-white font-medium truncate">{project.name}</h4>
-            <p className="text-slate-400 text-sm">{project.domain}</p>
-            <p className="text-slate-500 text-xs mt-1">
+            <h4 className="text-white font-medium truncate text-sm md:text-base">{project.name}</h4>
+            <p className="text-slate-400 text-xs md:text-sm">{project.domain}</p>
+            <p className="text-slate-500 text-[10px] md:text-xs mt-0.5">
               {project.niche && `${project.niche} · `}
               {project.language.toUpperCase()} · 
               Created {new Date(project.created_at).toLocaleDateString()}
             </p>
           </div>
-          <div className="flex items-center gap-2 ml-4">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <button
               onClick={() => handleLoadProject(project)}
               className="px-3 py-1.5 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-lg text-sm hover:bg-blue-500/30 transition-colors"
@@ -138,11 +144,19 @@ export default function ProjectList() {
             </button>
             <button
               onClick={() => handleDeleteProject(project.id)}
-              className="p-1.5 text-slate-400 hover:text-red-400 transition-colors"
+              className={`p-1.5 rounded transition-all ${
+                deleteConfirm === project.id
+                  ? 'text-red-400 bg-red-500/20'
+                  : 'text-slate-400 hover:text-red-400'
+              }`}
+              title={deleteConfirm === project.id ? 'Click again to confirm' : 'Delete project'}
             >
               <Trash2 size={16} />
             </button>
           </div>
+          {deleteConfirm === project.id && (
+            <p className="text-red-400 text-xs sm:hidden">Click trash again to confirm</p>
+          )}
         </div>
       ))}
     </div>

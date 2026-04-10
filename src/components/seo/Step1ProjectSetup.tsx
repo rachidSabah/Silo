@@ -7,7 +7,7 @@ import TagInput from './TagInput';
 import { Globe, Tag, FileText, Languages, ArrowRight, Sparkles } from 'lucide-react';
 
 export default function Step1ProjectSetup() {
-  const { project, setProject, setStep, setSilos, setPages, setSavedProjectId } = useStore();
+  const { project, setProject, setStep, silos, pages, setSavedProjectId } = useStore();
   const [name, setName] = useState(project?.name || '');
   const [domain, setDomain] = useState(project?.domain || '');
   const [language, setLanguage] = useState(project?.language || 'en');
@@ -15,6 +15,7 @@ export default function Step1ProjectSetup() {
   const [seedKeywords, setSeedKeywords] = useState<string[]>(project?.seedKeywords || []);
   const [expanding, setExpanding] = useState(false);
   const [error, setError] = useState('');
+  const [showResetWarning, setShowResetWarning] = useState(false);
 
   const handleExpandKeywords = async () => {
     if (seedKeywords.length === 0 && !niche) return;
@@ -30,6 +31,7 @@ export default function Step1ProjectSetup() {
           language,
         }),
       });
+      if (!res.ok) throw new Error('AI expansion failed');
       const data = await res.json();
       if (data.keywords) {
         const newKeywords = [...new Set([...seedKeywords, ...data.keywords])];
@@ -37,7 +39,6 @@ export default function Step1ProjectSetup() {
       }
     } catch (err) {
       setError('Failed to expand keywords. Please try again.');
-      console.error(err);
     } finally {
       setExpanding(false);
     }
@@ -49,30 +50,47 @@ export default function Step1ProjectSetup() {
       return;
     }
 
+    // Validate domain format
+    const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-_.]+\.[a-zA-Z]{2,}$/;
+    const cleanDomain = domain.trim().replace(/^https?:\/\//, '');
+    if (!domainRegex.test(cleanDomain)) {
+      setError('Please enter a valid domain (e.g., example.com)');
+      return;
+    }
+
+    // Warn if there's existing data
+    if (project && (silos.length > 0 || pages.length > 0)) {
+      setShowResetWarning(true);
+      return;
+    }
+
+    confirmAndProceed(cleanDomain);
+  };
+
+  const confirmAndProceed = (cleanDomain?: string) => {
+    const domainToUse = cleanDomain || domain.trim().replace(/^https?:\/\//, '');
     const projectId = project?.id || uuidv4();
     setProject({
       id: projectId,
       name: name.trim(),
-      domain: domain.trim().replace(/^https?:\/\//, ''),
+      domain: domainToUse,
       language,
       niche: niche.trim(),
       seedKeywords,
     });
-
     setSavedProjectId(null);
-    setSilos([]);
-    setPages([]);
+    setShowResetWarning(false);
     setStep(2);
   };
 
   return (
     <div className="max-w-2xl mx-auto">
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-white mb-2">Project Setup</h2>
-        <p className="text-slate-400">Define your website project details and seed keywords to get started.</p>
+      <div className="mb-6 md:mb-8">
+        <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Project Setup</h2>
+        <p className="text-sm md:text-base text-slate-400">Define your website project details and seed keywords to get started.</p>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-5 md:space-y-6">
         {/* Project Name */}
         <div>
           <label className="flex items-center gap-2 text-sm font-medium text-slate-300 mb-2">
@@ -82,9 +100,10 @@ export default function Step1ProjectSetup() {
           <input
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => { setName(e.target.value); setError(''); }}
             placeholder="e.g., My Fitness Blog"
-            className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+            maxLength={100}
+            className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors text-sm md:text-base"
           />
         </div>
 
@@ -95,15 +114,16 @@ export default function Step1ProjectSetup() {
             Domain Name
           </label>
           <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-colors">
-            <span className="px-4 py-3 text-slate-500 bg-slate-800 border-r border-slate-700 text-sm whitespace-nowrap">
+            <span className="px-2 md:px-4 py-3 text-slate-500 bg-slate-800 border-r border-slate-700 text-xs md:text-sm whitespace-nowrap">
               https://
             </span>
             <input
               type="text"
               value={domain}
-              onChange={(e) => setDomain(e.target.value)}
+              onChange={(e) => { setDomain(e.target.value); setError(''); }}
               placeholder="example.com"
-              className="flex-1 px-4 py-3 bg-transparent text-white placeholder:text-slate-500 focus:outline-none"
+              maxLength={100}
+              className="flex-1 min-w-0 px-2 md:px-4 py-3 bg-transparent text-white placeholder:text-slate-500 focus:outline-none text-sm md:text-base"
             />
           </div>
         </div>
@@ -117,7 +137,7 @@ export default function Step1ProjectSetup() {
           <select
             value={language}
             onChange={(e) => setLanguage(e.target.value)}
-            className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+            className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors text-sm md:text-base"
           >
             <option value="en">English (EN)</option>
             <option value="fr">French (FR)</option>
@@ -139,7 +159,8 @@ export default function Step1ProjectSetup() {
             value={niche}
             onChange={(e) => setNiche(e.target.value)}
             placeholder="e.g., Fitness & Health, Digital Marketing, Travel"
-            className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+            maxLength={100}
+            className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors text-sm md:text-base"
           />
         </div>
 
@@ -153,6 +174,7 @@ export default function Step1ProjectSetup() {
             tags={seedKeywords}
             onChange={setSeedKeywords}
             placeholder="Type a keyword and press Enter..."
+            maxTags={30}
           />
           <p className="text-slate-500 text-xs mt-2">
             Add your main target keywords. Press Enter or comma to add each keyword.
@@ -184,12 +206,35 @@ export default function Step1ProjectSetup() {
           </div>
         )}
 
+        {/* Reset warning dialog */}
+        {showResetWarning && (
+          <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+            <p className="text-amber-300 text-sm font-medium mb-3">
+              Proceeding will reset your existing silos and pages ({silos.length} silos, {pages.length} pages). Continue?
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => confirmAndProceed()}
+                className="px-4 py-2 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-sm hover:bg-amber-500/30 transition-colors"
+              >
+                Yes, reset and continue
+              </button>
+              <button
+                onClick={() => setShowResetWarning(false)}
+                className="px-4 py-2 text-slate-400 hover:text-white text-sm transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Next Button */}
-        <div className="flex justify-end pt-4">
+        <div className="flex justify-end pt-2 md:pt-4">
           <button
             onClick={handleNext}
             disabled={!name.trim() || !domain.trim()}
-            className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-blue-500/20"
+            className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-blue-500/20 text-sm md:text-base"
           >
             Next: Silo Structure
             <ArrowRight size={18} />

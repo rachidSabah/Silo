@@ -24,8 +24,8 @@ export async function POST(req: NextRequest) {
       name: body.name,
       domain: body.domain,
       language: body.language || 'en',
-      niche: body.niche,
-      seed_keywords: body.seedKeywords ? JSON.stringify(body.seedKeywords) : null,
+      niche: body.niche || undefined,
+      seed_keywords: body.seedKeywords ? JSON.stringify(body.seedKeywords) : undefined,
     });
 
     return NextResponse.json({ id, ...body }, { status: 201 });

@@ -1,21 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { v4 as uuidv4 } from 'uuid';
+import TagInput from './TagInput';
 import VisualTree from './VisualTree';
-import { Sparkles, Plus, X, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
+import { Sparkles, Plus, X, ArrowLeft, ArrowRight, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 
 export default function Step2SiloStructure() {
   const { project, silos, setSilos, addSilo, removeSilo, updateSilo, setStep } = useStore();
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'edit' | 'tree'>('edit');
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [expandedSilo, setExpandedSilo] = useState<string | null>(null);
 
-  if (!project) {
-    setStep(1);
-    return null;
-  }
+  // Redirect guard using useEffect instead of render-time setStep
+  useEffect(() => {
+    if (!project) setStep(1);
+  }, [project, setStep]);
+
+  if (!project) return null;
 
   const handleGenerateSilos = async () => {
     setGenerating(true);
@@ -30,6 +35,7 @@ export default function Step2SiloStructure() {
           language: project.language,
         }),
       });
+      if (!res.ok) throw new Error('Failed to generate silos');
       const data = await res.json();
 
       if (data.silos && Array.isArray(data.silos)) {
@@ -40,31 +46,49 @@ export default function Step2SiloStructure() {
           keywords: s.keywords || [],
         }));
         setSilos(newSilos);
+        // Auto-expand first silo
+        if (newSilos.length > 0) setExpandedSilo(newSilos[0].id);
       } else {
         setError('AI returned unexpected format. Please try again.');
       }
     } catch (err) {
       setError('Failed to generate silos. Please try again.');
-      console.error(err);
     } finally {
       setGenerating(false);
     }
   };
 
   const handleAddManualSilo = () => {
-    addSilo({
+    const newSilo = {
       id: uuidv4(),
       projectId: project.id,
       name: 'New Silo',
       keywords: [],
-    });
+    };
+    addSilo(newSilo);
+    setExpandedSilo(newSilo.id);
+  };
+
+  const handleRemoveSilo = (id: string) => {
+    if (deleteConfirm === id) {
+      removeSilo(id);
+      setDeleteConfirm(null);
+      if (expandedSilo === id) setExpandedSilo(null);
+    } else {
+      setDeleteConfirm(id);
+      setTimeout(() => setDeleteConfirm(null), 3000);
+    }
+  };
+
+  const toggleExpand = (id: string) => {
+    setExpandedSilo(expandedSilo === id ? null : id);
   };
 
   return (
     <div>
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-white mb-2">Silo Structure</h2>
-        <p className="text-slate-400">Define your content silo categories. Use AI to generate suggestions or add them manually.</p>
+      <div className="mb-6 md:mb-8">
+        <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Silo Structure</h2>
+        <p className="text-sm md:text-base text-slate-400">Define your content silo categories. Use AI to generate suggestions or add them manually.</p>
       </div>
 
       {/* Tabs */}
@@ -94,7 +118,7 @@ export default function Step2SiloStructure() {
       {activeTab === 'edit' ? (
         <>
           {/* Action buttons */}
-          <div className="flex gap-3 mb-6">
+          <div className="flex flex-wrap gap-3 mb-6">
             <button
               onClick={handleGenerateSilos}
               disabled={generating}
@@ -128,41 +152,91 @@ export default function Step2SiloStructure() {
             </div>
           )}
 
-          {/* Silo cards */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            {silos.map((silo) => (
-              <div
-                key={silo.id}
-                className="group p-4 bg-slate-800 border border-slate-700 rounded-xl hover:border-slate-600 transition-all"
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <input
-                    type="text"
-                    value={silo.name}
-                    onChange={(e) => updateSilo(silo.id, { name: e.target.value })}
-                    className="flex-1 bg-transparent text-white font-medium text-lg focus:outline-none border-b border-transparent focus:border-blue-500 transition-colors mr-2"
-                  />
-                  <button
-                    onClick={() => removeSilo(silo.id)}
-                    className="p-1 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 bg-blue-500/15 text-blue-400 rounded text-xs">
-                    {silo.keywords?.length || 0} keywords
-                  </span>
-                  <span className="text-slate-600 text-xs">·</span>
-                  <span className="text-slate-500 text-xs">
-                    {silo.name.toLowerCase().replace(/\s+/g, '-')}
-                  </span>
-                </div>
+          {/* Generating indicator */}
+          {generating && (
+            <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+              <div className="flex items-center gap-3 mb-3">
+                <Loader2 size={20} className="animate-spin text-blue-400" />
+                <span className="text-blue-300 font-medium text-sm">AI is generating silo structure...</span>
               </div>
-            ))}
+              <div className="w-full bg-slate-700 rounded-full h-2">
+                <div className="bg-blue-500 h-2 rounded-full animate-pulse" style={{ width: '60%' }} />
+              </div>
+            </div>
+          )}
 
-            {silos.length === 0 && (
-              <div className="col-span-2 text-center py-16 text-slate-500">
+          {/* Silo cards - list view for better mobile */}
+          <div className="space-y-3">
+            {silos.map((silo) => {
+              const isExpanded = expandedSilo === silo.id;
+
+              return (
+                <div
+                  key={silo.id}
+                  className="group bg-slate-800 border border-slate-700 rounded-xl hover:border-slate-600 transition-all overflow-hidden"
+                >
+                  {/* Silo header */}
+                  <div className="flex items-center gap-2 p-3 md:p-4">
+                    <button
+                      onClick={() => toggleExpand(silo.id)}
+                      className="p-1 text-slate-400 hover:text-white transition-colors flex-shrink-0"
+                    >
+                      {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                    </button>
+                    <input
+                      type="text"
+                      value={silo.name}
+                      onChange={(e) => updateSilo(silo.id, { name: e.target.value })}
+                      className="flex-1 min-w-0 bg-transparent text-white font-medium text-base md:text-lg focus:outline-none border-b border-transparent focus:border-blue-500 transition-colors"
+                      maxLength={100}
+                    />
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="hidden sm:inline px-2 py-0.5 bg-blue-500/15 text-blue-400 rounded text-xs">
+                        {silo.keywords?.length || 0} keywords
+                      </span>
+                      <button
+                        onClick={() => handleRemoveSilo(silo.id)}
+                        className={`p-1.5 rounded-lg transition-all ${
+                          deleteConfirm === silo.id
+                            ? 'text-red-400 bg-red-500/20 border border-red-500/30'
+                            : 'text-slate-500 hover:text-red-400 hover:bg-red-500/10'
+                        }`}
+                        title={deleteConfirm === silo.id ? 'Click again to confirm' : 'Delete silo'}
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Delete confirmation */}
+                  {deleteConfirm === silo.id && (
+                    <div className="px-3 md:px-4 pb-2">
+                      <p className="text-red-400 text-xs">Click X again to confirm deletion</p>
+                    </div>
+                  )}
+
+                  {/* Expanded content - keyword editing */}
+                  {isExpanded && (
+                    <div className="px-3 md:px-4 pb-3 md:pb-4 border-t border-slate-700/50 pt-3">
+                      <label className="text-xs font-medium text-slate-400 mb-2 block">Silo Keywords</label>
+                      <TagInput
+                        tags={silo.keywords || []}
+                        onChange={(keywords) => updateSilo(silo.id, { keywords })}
+                        placeholder="Type a keyword and press Enter..."
+                        maxTags={20}
+                      />
+                      <div className="flex items-center gap-2 mt-2 text-slate-500 text-xs">
+                        <span className="sm:hidden">{silo.keywords?.length || 0} keywords</span>
+                        <span className="hidden sm:inline">Add keywords to help AI generate relevant pages for this silo</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {silos.length === 0 && !generating && (
+              <div className="text-center py-12 md:py-16 text-slate-500">
                 <Sparkles size={48} className="mx-auto mb-4 opacity-30" />
                 <p className="text-lg mb-2">No silos yet</p>
                 <p className="text-sm">Generate silos with AI or add them manually to get started.</p>
@@ -175,10 +249,10 @@ export default function Step2SiloStructure() {
       )}
 
       {/* Navigation */}
-      <div className="flex justify-between pt-8 mt-8 border-t border-slate-700">
+      <div className="flex justify-between pt-6 md:pt-8 mt-6 md:mt-8 border-t border-slate-700">
         <button
           onClick={() => setStep(1)}
-          className="flex items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white transition-colors"
+          className="flex items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white transition-colors text-sm"
         >
           <ArrowLeft size={18} />
           Back
@@ -186,9 +260,9 @@ export default function Step2SiloStructure() {
         <button
           onClick={() => setStep(3)}
           disabled={silos.length === 0}
-          className="flex items-center gap-2 px-6 py-2.5 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-blue-500/20"
+          className="flex items-center gap-2 px-4 md:px-6 py-2.5 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-blue-500/20 text-sm"
         >
-          Next: Semantic Generation
+          Next: Semantic Gen
           <ArrowRight size={18} />
         </button>
       </div>

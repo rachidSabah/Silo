@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { v4 as uuidv4 } from 'uuid';
 import PageTypeBadge from './PageTypeBadge';
@@ -14,16 +14,18 @@ export default function Step3SemanticGen() {
   const [expandedSilos, setExpandedSilos] = useState<Record<string, boolean>>({});
   const [activeTab, setActiveTab] = useState<'pages' | 'tree'>('pages');
 
-  if (!project || silos.length === 0) {
-    setStep(2);
-    return null;
-  }
+  useEffect(() => {
+    if (!project || silos.length === 0) setStep(2);
+  }, [project, silos.length, setStep]);
+
+  if (!project || silos.length === 0) return null;
 
   const handleGeneratePages = async () => {
     setGenerating(true);
     setError('');
     try {
       const siloData = silos.map((s) => ({
+        id: s.id,
         name: s.name,
         keywords: s.keywords || [],
       }));
@@ -38,12 +40,24 @@ export default function Step3SemanticGen() {
         }),
       });
 
+      if (!res.ok) throw new Error('Failed to generate pages');
       const data = await res.json();
 
       if (data.pagesBySilo) {
-        const newPages = [];
-        for (const [siloName, siloPages] of Object.entries(data.pagesBySilo)) {
-          const silo = silos.find((s) => s.name === siloName);
+        const newPages: Array<{
+          id: string;
+          projectId: string;
+          siloId: string | null;
+          title: string;
+          slug: string;
+          metaDescription: string;
+          keywords: string[];
+          type: 'pillar' | 'cluster' | 'blog' | 'category' | 'landing';
+          parentId: string | null;
+        }> = [];
+        for (const [siloRef, siloPages] of Object.entries(data.pagesBySilo)) {
+          // Match by both name and ID for robustness
+          const silo = silos.find((s) => s.name === siloRef || s.id === siloRef);
           const pageList = siloPages as Array<{
             title: string;
             slug: string;
@@ -74,7 +88,6 @@ export default function Step3SemanticGen() {
       }
     } catch (err) {
       setError('Failed to generate pages. Please try again.');
-      console.error(err);
     } finally {
       setGenerating(false);
     }
@@ -93,9 +106,9 @@ export default function Step3SemanticGen() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-white mb-2">Semantic Generation</h2>
-        <p className="text-slate-400">
+      <div className="mb-6 md:mb-8">
+        <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Semantic Generation</h2>
+        <p className="text-sm md:text-base text-slate-400">
           Generate pillar, cluster, and blog pages for each silo using AI.
         </p>
       </div>
@@ -127,7 +140,7 @@ export default function Step3SemanticGen() {
       {activeTab === 'pages' ? (
         <>
           {/* Action buttons */}
-          <div className="flex gap-3 mb-6">
+          <div className="flex flex-wrap gap-3 mb-6">
             <button
               onClick={handleGeneratePages}
               disabled={generating}
@@ -164,12 +177,12 @@ export default function Step3SemanticGen() {
             </div>
           )}
 
-          {/* Progress indicator */}
+          {/* Generating indicator */}
           {generating && (
             <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
               <div className="flex items-center gap-3 mb-3">
                 <Loader2 size={20} className="animate-spin text-blue-400" />
-                <span className="text-blue-300 font-medium">AI is generating your page structure...</span>
+                <span className="text-blue-300 font-medium text-sm">AI is generating your page structure...</span>
               </div>
               <div className="w-full bg-slate-700 rounded-full h-2">
                 <div className="bg-blue-500 h-2 rounded-full animate-pulse" style={{ width: '60%' }} />
@@ -186,15 +199,15 @@ export default function Step3SemanticGen() {
               >
                 <button
                   onClick={() => toggleSilo(silo.id)}
-                  className="w-full flex items-center justify-between p-4 hover:bg-slate-750 transition-colors"
+                  className="w-full flex items-center justify-between p-3 md:p-4 hover:bg-slate-700/30 transition-colors"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 md:gap-3">
                     {expandedSilos[silo.id] !== false ? (
-                      <ChevronDown size={18} className="text-slate-400" />
+                      <ChevronDown size={18} className="text-slate-400 flex-shrink-0" />
                     ) : (
-                      <ChevronRight size={18} className="text-slate-400" />
+                      <ChevronRight size={18} className="text-slate-400 flex-shrink-0" />
                     )}
-                    <span className="text-white font-medium">{silo.name}</span>
+                    <span className="text-white font-medium text-sm md:text-base">{silo.name}</span>
                     <span className="px-2 py-0.5 bg-slate-700 text-slate-400 rounded text-xs">
                       {siloPages.length} pages
                     </span>
@@ -202,20 +215,20 @@ export default function Step3SemanticGen() {
                 </button>
 
                 {expandedSilos[silo.id] !== false && siloPages.length > 0 && (
-                  <div className="px-4 pb-4 space-y-2">
+                  <div className="px-3 md:px-4 pb-3 md:pb-4 space-y-2">
                     {siloPages.map((page) => (
                       <div
                         key={page.id}
-                        className="flex items-center gap-3 p-3 bg-slate-900/50 rounded-lg border border-slate-700/50 hover:border-slate-600 transition-colors"
+                        className="flex items-center gap-2 md:gap-3 p-2.5 md:p-3 bg-slate-900/50 rounded-lg border border-slate-700/50 hover:border-slate-600 transition-colors"
                       >
                         <PageTypeBadge type={page.type} />
                         <div className="flex-1 min-w-0">
-                          <div className="text-white text-sm font-medium truncate">{page.title}</div>
-                          <div className="text-slate-500 text-xs mt-0.5">
+                          <div className="text-white text-xs md:text-sm font-medium truncate">{page.title}</div>
+                          <div className="text-slate-500 text-[10px] md:text-xs mt-0.5">
                             /{page.slug}
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-1 max-w-[200px]">
+                        <div className="hidden sm:flex flex-wrap gap-1 max-w-[160px]">
                           {page.keywords.slice(0, 3).map((kw, i) => (
                             <span
                               key={i}
@@ -234,7 +247,7 @@ export default function Step3SemanticGen() {
                 )}
 
                 {expandedSilos[silo.id] !== false && siloPages.length === 0 && (
-                  <div className="px-4 pb-4 text-slate-500 text-sm italic">
+                  <div className="px-3 md:px-4 pb-3 md:pb-4 text-slate-500 text-sm italic">
                     No pages generated yet
                   </div>
                 )}
@@ -243,22 +256,22 @@ export default function Step3SemanticGen() {
 
             {unassignedPages.length > 0 && (
               <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
-                <div className="p-4 border-b border-slate-700">
-                  <span className="text-white font-medium">Unassigned Pages</span>
+                <div className="p-3 md:p-4 border-b border-slate-700">
+                  <span className="text-white font-medium text-sm md:text-base">Unassigned Pages</span>
                   <span className="ml-2 px-2 py-0.5 bg-slate-700 text-slate-400 rounded text-xs">
                     {unassignedPages.length}
                   </span>
                 </div>
-                <div className="p-4 space-y-2">
+                <div className="p-3 md:p-4 space-y-2">
                   {unassignedPages.map((page) => (
                     <div
                       key={page.id}
-                      className="flex items-center gap-3 p-3 bg-slate-900/50 rounded-lg border border-slate-700/50"
+                      className="flex items-center gap-2 md:gap-3 p-2.5 md:p-3 bg-slate-900/50 rounded-lg border border-slate-700/50"
                     >
                       <PageTypeBadge type={page.type} />
                       <div className="flex-1 min-w-0">
-                        <div className="text-white text-sm font-medium truncate">{page.title}</div>
-                        <div className="text-slate-500 text-xs mt-0.5">/{page.slug}</div>
+                        <div className="text-white text-xs md:text-sm font-medium truncate">{page.title}</div>
+                        <div className="text-slate-500 text-[10px] md:text-xs mt-0.5">/{page.slug}</div>
                       </div>
                     </div>
                   ))}
@@ -268,7 +281,7 @@ export default function Step3SemanticGen() {
           </div>
 
           {pages.length === 0 && !generating && (
-            <div className="text-center py-16 text-slate-500">
+            <div className="text-center py-12 md:py-16 text-slate-500">
               <Sparkles size={48} className="mx-auto mb-4 opacity-30" />
               <p className="text-lg mb-2">No pages generated yet</p>
               <p className="text-sm">Click &quot;Generate Pages with AI&quot; to create semantic page structures.</p>
@@ -280,10 +293,10 @@ export default function Step3SemanticGen() {
       )}
 
       {/* Navigation */}
-      <div className="flex justify-between pt-8 mt-8 border-t border-slate-700">
+      <div className="flex justify-between pt-6 md:pt-8 mt-6 md:mt-8 border-t border-slate-700">
         <button
           onClick={() => setStep(2)}
-          className="flex items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white transition-colors"
+          className="flex items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white transition-colors text-sm"
         >
           <ArrowLeft size={18} />
           Back
@@ -291,7 +304,7 @@ export default function Step3SemanticGen() {
         <button
           onClick={() => setStep(4)}
           disabled={pages.length === 0}
-          className="flex items-center gap-2 px-6 py-2.5 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-blue-500/20"
+          className="flex items-center gap-2 px-6 py-2.5 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-blue-500/20 text-sm"
         >
           Next: Page Management
           <ArrowRight size={18} />

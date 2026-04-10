@@ -13,6 +13,7 @@ export async function GET(req: NextRequest) {
     const silos = await getSilosByProject(projectId);
     return NextResponse.json(silos);
   } catch (error) {
+    console.error('GET /api/silos error:', error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
@@ -22,19 +23,30 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     if (Array.isArray(body)) {
-      const results = [];
+      const results: Record<string, unknown>[] = [];
       for (const silo of body) {
         const id = silo.id || uuidv4();
-        await createSilo({ id, project_id: silo.project_id, name: silo.name });
+        await createSilo({
+          id,
+          project_id: silo.project_id,
+          name: silo.name,
+          keywords: silo.keywords || null,
+        });
         results.push({ id, ...silo });
       }
       return NextResponse.json(results, { status: 201 });
     }
 
     const id = body.id || uuidv4();
-    await createSilo({ id, project_id: body.project_id, name: body.name });
+    await createSilo({
+      id,
+      project_id: body.project_id,
+      name: body.name,
+      keywords: body.keywords || null,
+    });
     return NextResponse.json({ id, ...body }, { status: 201 });
   } catch (error) {
+    console.error('POST /api/silos error:', error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
