@@ -63,11 +63,25 @@ function getD1(): D1Database {
   return env.DB as D1Database;
 }
 
+// Auto-migrate: ensure silos table has keywords column
+let _migrationDone = false;
+async function ensureMigration(db: D1Database) {
+  if (_migrationDone) return;
+  _migrationDone = true;
+  try {
+    // Try to add keywords column to silos (ignore error if it already exists)
+    await db.prepare('ALTER TABLE silos ADD COLUMN keywords TEXT').run();
+  } catch {
+    // Column already exists, which is fine
+  }
+}
+
 // ===== Projects =====
 
 export async function getAllProjects() {
   if (isCloudflare()) {
     const db = getD1();
+    await ensureMigration(db);
     const { results } = await db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all();
     return results;
   }
