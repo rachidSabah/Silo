@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { deleteSilo } from '@/lib/sqlite';
+import { deleteSilo } from '@/lib/db';
+
+export const runtime = 'edge';
 
 export async function DELETE(
   _req: NextRequest,
@@ -7,7 +9,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    deleteSilo(id);
+    await deleteSilo(id);
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

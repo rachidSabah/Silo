@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Papa from 'papaparse';
-import { getPagesByProject } from '@/lib/sqlite';
+import { getPagesByProject } from '@/lib/db';
+
+export const runtime = 'edge';
 
 export async function GET(req: NextRequest) {
   try {
@@ -9,7 +11,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'project_id is required' }, { status: 400 });
     }
 
-    const pages = getPagesByProject(projectId) as Array<{
+    const pages = await getPagesByProject(projectId) as Array<{
       slug: string;
       title: string;
       meta_description: string | null;

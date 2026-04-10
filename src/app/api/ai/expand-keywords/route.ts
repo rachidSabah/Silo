@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { expandKeywords } from '@/lib/ai';
 
+export const runtime = 'edge';
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();

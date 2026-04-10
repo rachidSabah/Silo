@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { updatePage, deletePage } from '@/lib/sqlite';
+import { updatePage, deletePage } from '@/lib/db';
+
+export const runtime = 'edge';
 
 export async function PUT(
   req: NextRequest,
@@ -8,7 +10,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await req.json();
-    updatePage(id, body);
+    await updatePage(id, body);
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -21,7 +23,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    deletePage(id);
+    await deletePage(id);
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

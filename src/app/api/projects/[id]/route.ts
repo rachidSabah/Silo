@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getProjectById, deleteProject } from '@/lib/sqlite';
+import { getProjectById, deleteProject } from '@/lib/db';
+
+export const runtime = 'edge';
 
 export async function GET(
   _req: NextRequest,
@@ -7,7 +9,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const project = getProjectById(id);
+    const project = await getProjectById(id);
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
@@ -23,7 +25,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    deleteProject(id);
+    await deleteProject(id);
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

@@ -1,0 +1,9 @@
+name = "siloforge"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".vercel/output/static"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "siloforge-db"
+database_id = "9c4c51df-cfa5-4f9a-b002-85a05e70fa8a"

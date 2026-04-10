@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
-import { createProject, getAllProjects } from '@/lib/sqlite';
+import { getAllProjects, createProject } from '@/lib/db';
+
+export const runtime = 'edge';
 
 export async function GET() {
   try {
-    const projects = getAllProjects();
+    const projects = await getAllProjects();
     return NextResponse.json(projects);
   } catch (error) {
+    console.error('GET /api/projects error:', error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
@@ -16,7 +19,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const id = body.id || uuidv4();
 
-    createProject({
+    await createProject({
       id,
       name: body.name,
       domain: body.domain,
@@ -27,6 +30,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ id, ...body }, { status: 201 });
   } catch (error) {
+    console.error('POST /api/projects error:', error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
