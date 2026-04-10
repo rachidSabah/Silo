@@ -6,4 +6,4 @@ pages_build_output_dir = ".vercel/output/static"
 [[d1_databases]]
 binding = "DB"
 database_name = "siloforge-db"
-database_id = "e6e4e3d7-6f3d-4e60-9e58-5bf2c15a3a2f"
+database_id = "9c4c51df-cfa5-4f9a-b002-85a05e70fa8a"
