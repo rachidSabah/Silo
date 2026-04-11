@@ -27,16 +27,15 @@ async function callOpenAI(apiKey: string, model: string, messages: ChatMessage[]
   return data.choices?.[0]?.message?.content || '';
 }
 
-// Map deprecated Gemini model names to current ones
+// Map deprecated/legacy Gemini model names to current stable ones
+// IMPORTANT: All mapped values must be REAL, STABLE models that exist in the Gemini API.
+// Never map to preview or hallucinated model names.
 const GEMINI_MODEL_MAP: Record<string, string> = {
+  // Legacy alias
   'gemini-pro': 'gemini-2.0-flash',
-  // 1.5 models still work but map to latest equivalents for better quality
-  'gemini-1.5-pro': 'gemini-2.5-pro-preview-05-06',
-  'gemini-1.5-flash': 'gemini-2.0-flash',
-  'gemini-1.5-flash-8b': 'gemini-2.0-flash-lite',
-  // Short aliases
-  'gemini-2.5-pro': 'gemini-2.5-pro-preview-05-06',
-  'gemini-2.5-flash': 'gemini-2.5-flash-preview-05-20',
+  // Short aliases — map to stable models only
+  'gemini-1.5-flash-8b': 'gemini-1.5-flash',
+  'gemini-2.0-flash-lite': 'gemini-2.0-flash',
 };
 
 async function callGemini(apiKey: string, model: string, messages: ChatMessage[]): Promise<string> {
@@ -559,13 +558,64 @@ Return as a JSON array.` },
 }
 
 export interface GeneratePagesResult {
-  pagesBySilo: Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]>;
+  pagesBySilo: Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string; target_keyword?: string; search_intent?: string; suggested_parent_keyword?: string }[]>;
   _debug?: {
     rawLength: number;
     rawPreview: string;
     parseError?: string;
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ARCHITECTURE MASTER PROMPT — Forces the AI to act as a Master SEO
+// Strategist that outputs a strict, highly relevant, hierarchical JSON
+// structure for silo page generation.
+// ═══════════════════════════════════════════════════════════════════════════
+const ARCHITECTURE_MASTER_PROMPT = `You are a Master Technical SEO Architect. Your job is to build a highly relevant, deeply semantic topical map for a specific SEO Silo. You must generate the pages that belong in this silo and output them in strict JSON format.
+
+### STRICT SILO HIERARCHY RULES
+You must generate three tiers of pages. They must be perfectly aligned with the target niche and completely avoid irrelevant fluff.
+
+1. **The Pillar Page (Tier 1):** The overarching, broad topic of the silo. There is only ONE pillar page per silo. This is the definitive, comprehensive guide that everything else links back to. Example: If the silo is about "Dog Training", the pillar is "Complete Guide to Dog Training".
+2. **Cluster Pages (Tier 2):** Deep-dive subcategories that strictly fall under the Pillar. These must be highly relevant commercial or informational hubs. Each cluster covers a distinct subtopic that does NOT overlap with other clusters. Example: "Puppy Potty Training", "Leash Training for Dogs", "Dog Obedience Training".
+3. **Blog Pages (Tier 3):** Long-tail, highly specific informational queries that support a specific Cluster. These answer real search questions people type into Google. Example: "How often should a 2-month-old puppy pee?", "Best leash for a pulling Labrador".
+
+### RELEVANCE STRICTNESS
+- DO NOT generate generic pages like "Introduction to [Topic]" or "History of [Topic]" unless there is massive search volume for it.
+- Every Cluster must logically fit inside the Pillar. If it doesn't, it belongs in a different silo.
+- Every Blog must logically fit inside a Cluster. If it doesn't, it belongs under a different cluster.
+- Ensure high semantic relevance. Use exact-match and LSI keywords for the target search intent.
+- NO filler pages. Every page must serve a clear search intent and have ranking potential.
+- Each page must target a DISTINCT primary keyword. No two pages may compete for the same keyword (anti-cannibalization).
+
+### SEARCH INTENT MAPPING
+- Pillar pages: "Informational" (broad guide) or "Commercial" (buyer's guide)
+- Cluster pages: "Commercial" (product/service subcategory) or "Informational" (deep tutorial)
+- Blog pages: "Informational" (how-to, FAQ, comparison) or "Transactional" (deal, price, discount)
+
+### PARENT-CHILD LINKING
+- Every Cluster page's "suggested_parent_keyword" MUST be the Pillar's "target_keyword".
+- Every Blog page's "suggested_parent_keyword" MUST be one of the Cluster pages' "target_keyword".
+- This creates a strict hierarchy: Blogs → Clusters → Pillar.
+
+### OUTPUT FORMAT
+You MUST return your response as a raw JSON array of objects, with NO markdown formatting, NO markdown code blocks, and NO conversational text. Use this exact schema:
+
+[
+  {
+    "title": "Optimized Page Title (50-60 chars)",
+    "slug": "url-friendly-slug-lowercase-hyphens",
+    "meta_description": "Compelling 150-160 char description with primary keyword",
+    "keywords": ["primary keyword", "LSI keyword 1", "LSI keyword 2", "LSI keyword 3"],
+    "target_keyword": "Primary Target Keyword",
+    "type": "pillar" | "cluster" | "blog",
+    "search_intent": "Informational" | "Commercial" | "Transactional",
+    "suggested_parent_keyword": "The target_keyword of the page this should link up to",
+    "silo_name": "EXACT name of the silo this page belongs to"
+  }
+]
+
+CRITICAL: Return ONLY the JSON array. No wrapper object. No explanations. No markdown.`;
 
 export async function generatePages(
   silos: { name: string; keywords: string[] }[],
@@ -580,169 +630,284 @@ export async function generatePages(
   const safeSeedKeywords = Array.isArray(seedKeywords) && seedKeywords.length > 0 ? seedKeywords : [];
   const safeSilos = Array.isArray(silos) && silos.length > 0 ? silos : [{ name: safeNiche, keywords: [safeNiche] }];
 
+  // Build the silo details section for the user payload
   const siloDetails = safeSilos.map(s =>
-    `Silo: "${s.name}"\n  Keywords: ${s.keywords.join(', ')}\n  Focus: Create pages that directly address search queries related to these exact keywords within the "${safeNiche}" niche.`
+    `Silo: "${s.name}"\n  Seed Keywords: ${s.keywords.join(', ')}`
   ).join('\n\n');
 
-  // Build the structured system prompt — uses SEO_MASTER_PROMPT philosophy adapted for page structure generation
-  const systemPrompt = `You are a Principal SEO Architect specializing in silo-based content architecture for the "${safeNiche}" niche.
-
-### CORE SILO ARCHITECTURE RULES (HCU COMPLIANT)
-1. Information Gain: Every page must offer a unique angle that no competitor covers. Avoid generic titles like "Introduction to..." or "Best Practices for..." — create niche-specific titles like "Complete Guide to [Specific Aspect] in ${safeNiche}".
-2. Anti-Cannibalization: Each page within a silo must target a DISTINCT keyword cluster. No two pages should compete for the same primary keyword.
-3. E-E-A-T: Page titles and descriptions must signal deep expertise in "${safeNiche}". Use specific terminology, frameworks, and industry concepts.
-4. Search Intent Mapping: Pillar pages target broad informational + commercial intent. Cluster pages target specific informational intent. Blog posts target long-tail mixed intent.
-
-### CRITICAL RELEVANCE RULES
-1. EVERY page title must be directly about "${safeNiche}" — not generic content that could apply to any topic.
-2. EVERY page's keywords must include at least one keyword from the silo's keyword list OR a closely related long-tail variant that contains the niche term.
-3. Pillar pages must be comprehensive guides — the authoritative resource for their silo's main topic within "${safeNiche}".
-4. Cluster pages must be focused deep-dives into specific subtopics of the pillar — still directly about "${safeNiche}".
-5. Blog posts must address real questions, trends, or how-to topics that people searching about "${safeNiche}" would actually look for.
-6. Meta descriptions must clearly indicate the page is about "${safeNiche}" and include primary keywords naturally.${safeSeedKeywords.length > 0 ? `\n7. Core niche keywords to weave throughout all pages: ${safeSeedKeywords.join(', ')}` : ''}
-
-### PAGE STRUCTURE PER SILO
-- 1 pillar page: the definitive guide for this silo's topic within "${safeNiche}"
-- 2-4 cluster pages: in-depth subtopic pages that support the pillar
-- 2-4 blog posts: timely, engaging content targeting long-tail queries
-
-### OUTPUT FORMAT
-Return ONLY a JSON object where:
-- Keys are EXACTLY the silo names provided below
-- Values are arrays of page objects
-
-Each page object must have:
-- "title": specific, keyword-rich title that includes niche-relevant terms
-- "slug": URL-friendly, lowercase, hyphens, includes niche keywords
-- "meta_description": 150-160 chars, includes primary keyword and niche context
-- "keywords": array of 3-5 keywords, at least 1 must come from the silo's keyword list
-- "type": "pillar" | "cluster" | "blog"
-
-No other text. No markdown fences. No explanations. Language: ${safeLanguage}.`;
-
-  const userPayload = `Generate pages for these silos in the "${safeNiche}" niche:
+  // Build the structured user payload with strict JSON schema enforcement
+  const userPayload = `Generate the page architecture for the following Silo(s) in the "${safeNiche}" niche:
 
 ${siloDetails}
 
-Remember: Every page must be DIRECTLY relevant to "${safeNiche}". Use the silo keywords as the foundation for each page's keyword strategy. Pages that are not specifically about "${safeNiche}" will be rejected. Return ONLY the JSON object.`;
+${safeSeedKeywords.length > 0 ? `Core niche keywords to weave throughout all pages: ${safeSeedKeywords.join(', ')}\n` : ''}For EACH silo, generate:
+- Exactly 1 Pillar Page (type: "pillar")
+- 3 to 5 Cluster Pages (type: "cluster") — each strictly under the Pillar
+- 2 to 3 Blog Pages per Cluster (type: "blog") — each supporting a specific Cluster
+
+Every page must be DIRECTLY relevant to "${safeNiche}". Use the silo's seed keywords as the foundation for each page's keyword strategy.
+
+You MUST return your response as a raw JSON array of objects, with NO markdown formatting, NO markdown code blocks (\`\`\`json), and NO conversational text. Use this exact schema:
+
+[
+  {
+    "title": "Optimized Page Title (50-60 chars)",
+    "slug": "url-friendly-slug-lowercase-hyphens",
+    "meta_description": "Compelling 150-160 char description with primary keyword",
+    "keywords": ["primary keyword", "LSI keyword 1", "LSI keyword 2", "LSI keyword 3"],
+    "target_keyword": "Primary Target Keyword",
+    "type": "pillar" | "cluster" | "blog",
+    "search_intent": "Informational" | "Commercial" | "Transactional",
+    "suggested_parent_keyword": "The target_keyword of the page this should link up to (e.g. a blog links to a cluster)",
+    "silo_name": "EXACT name of the silo this page belongs to"
+  }
+]
+
+REMEMBER:
+- Each Cluster's suggested_parent_keyword = the Pillar's target_keyword
+- Each Blog's suggested_parent_keyword = one Cluster's target_keyword
+- Language: ${safeLanguage}
+- Return ONLY the raw JSON array. No wrapper object. No markdown. No explanations.`;
 
   const content = await callAI([
-    { role: 'system', content: systemPrompt },
+    { role: 'system', content: ARCHITECTURE_MASTER_PROMPT },
     { role: 'user', content: userPayload },
   ], req);
 
   console.log('[generatePages] AI raw response length:', content.length, 'first 500 chars:', content.slice(0, 500));
 
-  const result = extractPagesBySilo(content, safeSilos);
-  console.log('[generatePages] Extracted keys:', Object.keys(result), 'total pages:', Object.values(result).reduce((sum, arr) => sum + arr.length, 0));
+  // ─────────────────────────────────────────────────────────────────
+  // STEP 1: Strip markdown formatting and extract clean JSON
+  // ─────────────────────────────────────────────────────────────────
+  const rawPages = parseAIPageArray(content);
 
-  // If extractPagesBySilo returned a result, return it
-  if (Object.keys(result).length > 0) {
-    return { pagesBySilo: result };
+  if (rawPages.length === 0) {
+    console.log('[generatePages] parseAIPageArray returned empty, trying legacy extractPagesBySilo...');
+    // Fallback: try the legacy multi-layer extraction for backward compatibility
+    const legacyResult = extractPagesBySilo(content, safeSilos);
+    if (Object.keys(legacyResult).length > 0) {
+      console.log('[generatePages] Legacy extraction succeeded, keys:', Object.keys(legacyResult));
+      return { pagesBySilo: legacyResult };
+    }
+    // All extraction failed — return debug info
+    return {
+      pagesBySilo: {},
+      _debug: {
+        rawLength: content.length,
+        rawPreview: content.slice(0, 5000),
+        parseError: 'All JSON extraction methods failed. AI response could not be parsed as page data.',
+      },
+    };
   }
 
-  // Fallback: try more aggressive parsing
-  console.log('[generatePages] extractPagesBySilo returned empty, trying fallback parse...');
-  let parseError = '';
-  try {
-    const cleaned = cleanAIResponse(content);
-    const parsed = JSON.parse(cleaned);
-    console.log('[generatePages] Fallback parse succeeded, type:', typeof parsed, Array.isArray(parsed), 'keys:', Object.keys(parsed).slice(0, 10));
+  // ─────────────────────────────────────────────────────────────────
+  // STEP 2: Validate and normalize each page object
+  // ─────────────────────────────────────────────────────────────────
+  const validatedPages = rawPages.map((page: Record<string, unknown>) => ({
+    title: String(page.title || '').trim(),
+    slug: String(page.slug || String(page.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')).trim(),
+    meta_description: String(page.meta_description || page.metaDescription || page.description || '').trim(),
+    keywords: Array.isArray(page.keywords) ? (page.keywords as string[]).map(String) : [],
+    target_keyword: String(page.target_keyword || page.targetKeyword || '').trim(),
+    type: validatePageType(page.type as string),
+    search_intent: validateSearchIntent(String(page.search_intent || page.searchIntent || '')),
+    suggested_parent_keyword: String(page.suggested_parent_keyword || page.suggestedParentKeyword || page.parent_keyword || '').trim(),
+    silo_name: String(page.silo_name || page.siloName || page.silo || safeSilos[0]?.name || '').trim(),
+  })).filter((p: { title: string }) => p.title.length > 0);
 
-    // If it's an array of objects with silo info
-    if (Array.isArray(parsed)) {
-      // Maybe it's a flat array of pages with a silo_name field
-      const bySilo: Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> = {};
-      for (const item of parsed) {
-        if (item && typeof item === 'object' && 'title' in item && item.title) {
-          const siloKey = (item as Record<string, unknown>).silo_name || (item as Record<string, unknown>).siloName || (item as Record<string, unknown>).silo || safeSilos[0]?.name || 'Default';
-          if (!bySilo[siloKey as string]) bySilo[siloKey as string] = [];
-          bySilo[siloKey as string].push({
-            title: item.title as string,
-            slug: (item.slug as string) || (item.title as string).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
-            meta_description: (item.meta_description as string) || (item.metaDescription as string) || '',
-            keywords: Array.isArray(item.keywords) ? item.keywords as string[] : [],
-            type: (item.type as string) || 'blog',
-          });
+  // ─────────────────────────────────────────────────────────────────
+  // STEP 3: Group pages by silo name with fuzzy matching
+  // ─────────────────────────────────────────────────────────────────
+  const pagesBySilo: Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string; target_keyword?: string; search_intent?: string; suggested_parent_keyword?: string }[]> = {};
+  const siloNames = new Set(safeSilos.map(s => s.name));
+
+  for (const page of validatedPages) {
+    // Fuzzy-match silo name
+    let matchedSilo = page.silo_name;
+    if (!siloNames.has(matchedSilo)) {
+      const lower = matchedSilo.toLowerCase();
+      for (const name of siloNames) {
+        if (name.toLowerCase() === lower || name.toLowerCase().includes(lower) || lower.includes(name.toLowerCase())) {
+          matchedSilo = name;
+          break;
         }
       }
-      if (Object.keys(bySilo).length > 0) {
-        console.log('[generatePages] Fallback array-to-silo succeeded, keys:', Object.keys(bySilo));
-        return { pagesBySilo: bySilo };
+    }
+    // If still no match, assign to the first silo
+    if (!siloNames.has(matchedSilo) && safeSilos.length > 0) {
+      matchedSilo = safeSilos[0].name;
+    }
+    if (!pagesBySilo[matchedSilo]) pagesBySilo[matchedSilo] = [];
+    pagesBySilo[matchedSilo].push({
+      title: page.title,
+      slug: page.slug,
+      meta_description: page.meta_description,
+      keywords: page.keywords,
+      type: page.type,
+      target_keyword: page.target_keyword || undefined,
+      search_intent: page.search_intent || undefined,
+      suggested_parent_keyword: page.suggested_parent_keyword || undefined,
+    });
+  }
+
+  console.log('[generatePages] Successfully extracted pages. Silo keys:', Object.keys(pagesBySilo),
+    'total pages:', Object.values(pagesBySilo).reduce((sum, arr) => sum + arr.length, 0));
+
+  // Log hierarchy validation
+  for (const [siloName, siloPages] of Object.entries(pagesBySilo)) {
+    const pillarCount = siloPages.filter(p => p.type === 'pillar').length;
+    const clusterCount = siloPages.filter(p => p.type === 'cluster').length;
+    const blogCount = siloPages.filter(p => p.type === 'blog').length;
+    console.log(`[generatePages] Silo "${siloName}": ${pillarCount} pillar, ${clusterCount} cluster, ${blogCount} blog`);
+  }
+
+  return { pagesBySilo };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ROBUST JSON PARSER — Strips markdown formatting, extracts the page array
+// from any AI response format (raw array, wrapped in object, etc.)
+// ═══════════════════════════════════════════════════════════════════════════
+function parseAIPageArray(rawText: string): Record<string, unknown>[] {
+  if (!rawText || typeof rawText !== 'string') return [];
+
+  // Step 1: Strip markdown code fences
+  let cleaned = rawText
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .replace(/`{1,2}json\s*/gi, '')
+    .trim();
+
+  // Step 2: Try direct JSON.parse
+  try {
+    const parsed = JSON.parse(cleaned);
+    return extractPageArrayFromParsed(parsed);
+  } catch {}
+
+  // Step 3: Find balanced JSON boundaries (object or array)
+  const candidates = findJSONCandidates(cleaned);
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      const pages = extractPageArrayFromParsed(parsed);
+      if (pages.length > 0) return pages;
+    } catch {}
+  }
+
+  // Step 4: Aggressive — strip everything before first [ or { and after last ] or }
+  const firstArr = cleaned.indexOf('[');
+  const firstObj = cleaned.indexOf('{');
+  if (firstArr !== -1 || firstObj !== -1) {
+    const startIdx = firstArr !== -1 && (firstObj === -1 || firstArr < firstObj) ? firstArr : firstObj;
+    const lastArr = cleaned.lastIndexOf(']');
+    const lastObj = cleaned.lastIndexOf('}');
+    const endIdx = Math.max(lastArr, lastObj);
+    if (endIdx > startIdx) {
+      const candidate = cleaned.slice(startIdx, endIdx + 1);
+      try {
+        const parsed = JSON.parse(candidate);
+        return extractPageArrayFromParsed(parsed);
+      } catch {}
+    }
+  }
+
+  return [];
+}
+
+// Given a parsed JSON value, extract an array of page-like objects from it
+function extractPageArrayFromParsed(parsed: unknown): Record<string, unknown>[] {
+  // Direct array
+  if (Array.isArray(parsed)) {
+    const pages = parsed.filter(
+      (item): item is Record<string, unknown> =>
+        item !== null && typeof item === 'object' && 'title' in (item as Record<string, unknown>)
+    );
+    if (pages.length > 0) return pages;
+    return [];
+  }
+
+  // Object — look for common wrapper keys
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const obj = parsed as Record<string, unknown>;
+
+    // Check common wrapper keys that might contain an array of pages
+    for (const key of ['pages', 'data', 'result', 'articles', 'pageArchitecture']) {
+      if (Array.isArray(obj[key])) {
+        const pages = (obj[key] as unknown[]).filter(
+          (item): item is Record<string, unknown> =>
+            item !== null && typeof item === 'object' && 'title' in (item as Record<string, unknown>)
+        );
+        if (pages.length > 0) return pages;
       }
     }
 
-    // If it's an object but keys don't match silo names, try to match by page content
-    if (typeof parsed === 'object' && !Array.isArray(parsed)) {
-      // Try every key that has an array value
-      const bySilo: Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> = {};
-      for (const [key, val] of Object.entries(parsed as Record<string, unknown>)) {
-        if (Array.isArray(val) && val.length > 0 && val[0] && typeof val[0] === 'object' && 'title' in (val[0] as Record<string, unknown>)) {
-          bySilo[key] = val as { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[];
+    // Check if the object is keyed by silo names — flatten all arrays
+    const allPages: Record<string, unknown>[] = [];
+    for (const [key, val] of Object.entries(obj)) {
+      if (Array.isArray(val)) {
+        const pages = val.filter(
+          (item): item is Record<string, unknown> =>
+            item !== null && typeof item === 'object' && 'title' in (item as Record<string, unknown>)
+        );
+        for (const page of pages) {
+          if (!page.silo_name && !page.siloName && !page.silo) {
+            page.silo_name = key;
+          }
+          allPages.push(page);
         }
-        // If the value is an object with a 'pages' array
-        if (val && typeof val === 'object' && !Array.isArray(val) && (val as Record<string, unknown>).pages && Array.isArray((val as Record<string, unknown>).pages)) {
-          bySilo[key] = (val as Record<string, unknown>).pages as { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[];
-        }
-        // If the value is an object with nested page arrays (like {pillar: {...}, clusters: [...], blogs: [...]})
-        if (val && typeof val === 'object' && !Array.isArray(val) && !(val as Record<string, unknown>).pages) {
-          const nested = val as Record<string, unknown>;
-          const pages: { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[] = [];
-          for (const [subKey, subVal] of Object.entries(nested)) {
-            if (subVal && typeof subVal === 'object' && !Array.isArray(subVal) && 'title' in (subVal as Record<string, unknown>)) {
-              const page = subVal as Record<string, unknown>;
-              pages.push({
-                title: (page.title as string) || '',
-                slug: (page.slug as string) || ((page.title as string) || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
-                meta_description: (page.meta_description as string) || (page.metaDescription as string) || '',
-                keywords: Array.isArray(page.keywords) ? page.keywords as string[] : [],
-                type: inferPageType(subKey, page.type as string),
-              });
-            }
-            if (Array.isArray(subVal)) {
-              for (const item of subVal) {
-                if (item && typeof item === 'object' && 'title' in (item as Record<string, unknown>)) {
-                  const page = item as Record<string, unknown>;
-                  pages.push({
-                    title: (page.title as string) || '',
-                    slug: (page.slug as string) || ((page.title as string) || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
-                    meta_description: (page.meta_description as string) || (page.metaDescription as string) || '',
-                    keywords: Array.isArray(page.keywords) ? page.keywords as string[] : [],
-                    type: inferPageType(subKey, page.type as string),
-                  });
-                }
+      }
+      // Handle nested {pillar: {}, clusters: [], blogs: []} structures
+      if (val && typeof val === 'object' && !Array.isArray(val)) {
+        const nested = val as Record<string, unknown>;
+        for (const [subKey, subVal] of Object.entries(nested)) {
+          if (subVal && typeof subVal === 'object' && !Array.isArray(subVal) && 'title' in (subVal as Record<string, unknown>)) {
+            const page = subVal as Record<string, unknown>;
+            if (!page.type) page.type = inferPageType(subKey, undefined);
+            if (!page.silo_name) page.silo_name = key;
+            allPages.push(page);
+          }
+          if (Array.isArray(subVal)) {
+            for (const item of subVal) {
+              if (item && typeof item === 'object' && 'title' in (item as Record<string, unknown>)) {
+                const page = item as Record<string, unknown>;
+                if (!page.type) page.type = inferPageType(subKey, undefined);
+                if (!page.silo_name) page.silo_name = key;
+                allPages.push(page);
               }
             }
           }
-          if (pages.length > 0) {
-            bySilo[key] = pages;
-          }
         }
       }
-      if (Object.keys(bySilo).length > 0) {
-        console.log('[generatePages] Fallback object-with-arrays succeeded, keys:', Object.keys(bySilo));
-        return { pagesBySilo: bySilo };
-      }
     }
-
-    // Ultra fallback: if we have any data, try to create pages from it
-    parseError = 'All fallbacks failed. Parsed type: ' + typeof parsed + ', preview: ' + JSON.stringify(parsed).slice(0, 500);
-    console.error('[generatePages]', parseError);
-  } catch (e) {
-    parseError = 'Parse failed: ' + (e instanceof Error ? e.message : String(e)) + '. Raw text preview: ' + content.slice(0, 300);
-    console.error('[generatePages]', parseError);
+    if (allPages.length > 0) return allPages;
   }
 
-  // Return empty result with debug info so the client can show what went wrong
-  return {
-    pagesBySilo: {},
-    _debug: {
-      rawLength: content.length,
-      rawPreview: content.slice(0, 5000),
-      parseError,
-    },
-  };
+  return [];
 }
+
+// Validate page type against allowed values
+function validatePageType(type: string): string {
+  if (!type) return 'blog';
+  const lower = String(type).toLowerCase().trim();
+  if (['pillar', 'cluster', 'blog', 'category', 'landing'].includes(lower)) return lower;
+  if (lower.includes('pillar')) return 'pillar';
+  if (lower.includes('cluster')) return 'cluster';
+  if (lower.includes('blog') || lower.includes('post')) return 'blog';
+  if (lower.includes('categor')) return 'category';
+  if (lower.includes('land')) return 'landing';
+  return 'blog';
+}
+
+// Validate search intent against allowed values
+function validateSearchIntent(intent: string): string {
+  if (!intent) return 'Informational';
+  const lower = String(intent).toLowerCase().trim();
+  if (lower.includes('commercial')) return 'Commercial';
+  if (lower.includes('transaction')) return 'Transactional';
+  if (lower.includes('navigational')) return 'Navigational';
+  return 'Informational';
+}
+
 
 export async function suggestInternalLinks(
   pages: { id: string; title: string; slug: string; type: string; silo_id?: string | null }[],

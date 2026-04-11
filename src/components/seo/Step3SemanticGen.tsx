@@ -16,11 +16,13 @@ function clientSideExtractPages(
   id: string; projectId: string; siloId: string | null; title: string; slug: string;
   metaDescription: string; keywords: string[]; type: 'pillar' | 'cluster' | 'blog' | 'category' | 'landing';
   parentId: string | null; status: 'draft' | 'in_progress' | 'review' | 'published'; content: string; wordCount: number;
+  targetKeyword?: string; searchIntent?: string; suggestedParentKeyword?: string;
 }> {
   const pages: Array<{
     id: string; projectId: string; siloId: string | null; title: string; slug: string;
     metaDescription: string; keywords: string[]; type: 'pillar' | 'cluster' | 'blog' | 'category' | 'landing';
     parentId: string | null; status: 'draft' | 'in_progress' | 'review' | 'published'; content: string; wordCount: number;
+    targetKeyword?: string; searchIntent?: string; suggestedParentKeyword?: string;
   }> = [];
 
   const inferType = (key: string, explicitType?: string): 'pillar' | 'cluster' | 'blog' | 'category' | 'landing' => {
@@ -47,6 +49,9 @@ function clientSideExtractPages(
       status: 'draft',
       content: '',
       wordCount: 0,
+      targetKeyword: String(page.target_keyword || page.targetKeyword || '').trim() || undefined,
+      searchIntent: String(page.search_intent || page.searchIntent || '').trim() || undefined,
+      suggestedParentKeyword: String(page.suggested_parent_keyword || page.suggestedParentKeyword || page.parent_keyword || '').trim() || undefined,
     });
   };
 
@@ -168,6 +173,9 @@ export default function Step3SemanticGen() {
           status: 'draft' as const,
           content: '',
           wordCount: 0,
+          targetKeyword: String(page.target_keyword || page.targetKeyword || '').trim() || undefined,
+          searchIntent: String(page.search_intent || page.searchIntent || '').trim() || undefined,
+          suggestedParentKeyword: String(page.suggested_parent_keyword || page.suggestedParentKeyword || page.parent_keyword || '').trim() || undefined,
         };
       };
 

@@ -22,25 +22,12 @@ export const AI_PROVIDERS: Record<string, AIProvider> = {
     defaultModel: 'gpt-4o-mini',
   },
   gemini: {
-    name: 'Google Gemini / Gemma',
+    name: 'Google Gemini',
     models: [
-      // Gemini 2.5 series
-      'gemini-2.5-pro-preview-05-06',
-      'gemini-2.5-flash-preview-05-20',
-      // Gemini 2.0 series
+      // Stable Gemini models only — no preview/unreleased models
       'gemini-2.0-flash',
-      'gemini-2.0-flash-lite',
-      // Gemini 1.5 series
       'gemini-1.5-pro',
       'gemini-1.5-flash',
-      'gemini-1.5-flash-8b',
-      // Gemma series (via Gemini API)
-      'gemma-3-27b-it',
-      'gemma-3-12b-it',
-      'gemma-3-4b-it',
-      'gemma-3-1b-it',
-      // Legacy
-      'gemini-pro',
     ],
     defaultModel: 'gemini-2.0-flash',
   },

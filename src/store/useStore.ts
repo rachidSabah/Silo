@@ -32,6 +32,9 @@ export interface Page {
   status: PageStatus;
   content: string; // Generated article HTML/Markdown content
   wordCount: number; // Approximate word count of generated content
+  targetKeyword?: string; // Primary target keyword from AI architecture generation
+  searchIntent?: string; // Search intent: Informational | Commercial | Transactional
+  suggestedParentKeyword?: string; // Parent page's target_keyword for hierarchy linking
 }
 
 export interface InternalLink {

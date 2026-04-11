@@ -317,7 +317,7 @@ export async function getPagesByProject(projectId: string) {
   return mem.pages.filter((p) => p.project_id === projectId);
 }
 
-export async function createPage(data: { id: string; project_id: string; silo_id?: string | null; title: string; slug: string; meta_description?: string; keywords?: string; type: string; parent_id?: string | null; status?: string; content?: string; word_count?: number; gsc_clicks?: number; gsc_impressions?: number; gsc_position?: number; gsc_ctr?: number }) {
+export async function createPage(data: { id: string; project_id: string; silo_id?: string | null; title: string; slug: string; meta_description?: string; keywords?: string; type: string; parent_id?: string | null; status?: string; content?: string; word_count?: number; gsc_clicks?: number; gsc_impressions?: number; gsc_position?: number; gsc_ctr?: number; target_keyword?: string; search_intent?: string; suggested_parent_keyword?: string }) {
   if (isCloudflare()) {
     const db = getD1();
     // Check if page already exists to preserve GSC metrics on update
@@ -328,11 +328,11 @@ export async function createPage(data: { id: string; project_id: string; silo_id
       const gscImpressions = data.gsc_impressions !== undefined ? data.gsc_impressions : (existing.gsc_impressions as number) || 0;
       const gscPosition = data.gsc_position !== undefined ? data.gsc_position : (existing.gsc_position as number) || 0;
       const gscCtr = data.gsc_ctr !== undefined ? data.gsc_ctr : (existing.gsc_ctr as number) || 0;
-      await db.prepare('UPDATE pages SET project_id = ?, silo_id = ?, title = ?, slug = ?, meta_description = ?, keywords = ?, type = ?, parent_id = ?, status = ?, content = ?, word_count = ?, gsc_clicks = ?, gsc_impressions = ?, gsc_position = ?, gsc_ctr = ? WHERE id = ?')
-        .bind(data.project_id, data.silo_id ?? null, data.title, data.slug, data.meta_description || null, data.keywords || null, data.type, data.parent_id ?? null, data.status || 'draft', data.content ?? null, data.word_count ?? null, gscClicks, gscImpressions, gscPosition, gscCtr, data.id).run();
+      await db.prepare('UPDATE pages SET project_id = ?, silo_id = ?, title = ?, slug = ?, meta_description = ?, keywords = ?, type = ?, parent_id = ?, status = ?, content = ?, word_count = ?, gsc_clicks = ?, gsc_impressions = ?, gsc_position = ?, gsc_ctr = ?, target_keyword = ?, search_intent = ?, suggested_parent_keyword = ? WHERE id = ?')
+        .bind(data.project_id, data.silo_id ?? null, data.title, data.slug, data.meta_description || null, data.keywords || null, data.type, data.parent_id ?? null, data.status || 'draft', data.content ?? null, data.word_count ?? null, gscClicks, gscImpressions, gscPosition, gscCtr, data.target_keyword ?? null, data.search_intent ?? null, data.suggested_parent_keyword ?? null, data.id).run();
     } else {
-      await db.prepare('INSERT INTO pages (id, project_id, silo_id, title, slug, meta_description, keywords, type, parent_id, status, content, word_count, gsc_clicks, gsc_impressions, gsc_position, gsc_ctr) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .bind(data.id, data.project_id, data.silo_id ?? null, data.title, data.slug, data.meta_description || null, data.keywords || null, data.type, data.parent_id ?? null, data.status || 'draft', data.content ?? null, data.word_count ?? null, data.gsc_clicks ?? 0, data.gsc_impressions ?? 0, data.gsc_position ?? 0, data.gsc_ctr ?? 0).run();
+      await db.prepare('INSERT INTO pages (id, project_id, silo_id, title, slug, meta_description, keywords, type, parent_id, status, content, word_count, gsc_clicks, gsc_impressions, gsc_position, gsc_ctr, target_keyword, search_intent, suggested_parent_keyword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(data.id, data.project_id, data.silo_id ?? null, data.title, data.slug, data.meta_description || null, data.keywords || null, data.type, data.parent_id ?? null, data.status || 'draft', data.content ?? null, data.word_count ?? null, data.gsc_clicks ?? 0, data.gsc_impressions ?? 0, data.gsc_position ?? 0, data.gsc_ctr ?? 0, data.target_keyword ?? null, data.search_intent ?? null, data.suggested_parent_keyword ?? null).run();
     }
     return;
   }
@@ -357,10 +357,13 @@ export async function createPage(data: { id: string; project_id: string; silo_id
     gsc_position: data.gsc_position ?? 0,
     gsc_ctr: data.gsc_ctr ?? 0,
     gsc_last_synced: null,
+    target_keyword: data.target_keyword ?? null,
+    search_intent: data.search_intent ?? null,
+    suggested_parent_keyword: data.suggested_parent_keyword ?? null,
   });
 }
 
-export async function updatePage(id: string, data: { title?: string; slug?: string; meta_description?: string; keywords?: string; type?: string; silo_id?: string | null; parent_id?: string | null; status?: string; content?: string; word_count?: number; gsc_clicks?: number; gsc_impressions?: number; gsc_position?: number; gsc_ctr?: number; gsc_last_synced?: string }) {
+export async function updatePage(id: string, data: { title?: string; slug?: string; meta_description?: string; keywords?: string; type?: string; silo_id?: string | null; parent_id?: string | null; status?: string; content?: string; word_count?: number; gsc_clicks?: number; gsc_impressions?: number; gsc_position?: number; gsc_ctr?: number; gsc_last_synced?: string; target_keyword?: string; search_intent?: string; suggested_parent_keyword?: string }) {
   const fields: string[] = [];
   const values: (string | number | null)[] = [];
 
@@ -379,6 +382,9 @@ export async function updatePage(id: string, data: { title?: string; slug?: stri
   if (data.gsc_position !== undefined) { fields.push('gsc_position = ?'); values.push(data.gsc_position); }
   if (data.gsc_ctr !== undefined) { fields.push('gsc_ctr = ?'); values.push(data.gsc_ctr); }
   if (data.gsc_last_synced !== undefined) { fields.push('gsc_last_synced = ?'); values.push(data.gsc_last_synced); }
+  if (data.target_keyword !== undefined) { fields.push('target_keyword = ?'); values.push(data.target_keyword); }
+  if (data.search_intent !== undefined) { fields.push('search_intent = ?'); values.push(data.search_intent); }
+  if (data.suggested_parent_keyword !== undefined) { fields.push('suggested_parent_keyword = ?'); values.push(data.suggested_parent_keyword); }
 
   if (fields.length === 0) return null;
 
@@ -406,6 +412,9 @@ export async function updatePage(id: string, data: { title?: string; slug?: stri
     if (data.gsc_position !== undefined) page.gsc_position = data.gsc_position;
     if (data.gsc_ctr !== undefined) page.gsc_ctr = data.gsc_ctr;
     if (data.gsc_last_synced !== undefined) page.gsc_last_synced = data.gsc_last_synced;
+    if (data.target_keyword !== undefined) page.target_keyword = data.target_keyword;
+    if (data.search_intent !== undefined) page.search_intent = data.search_intent;
+    if (data.suggested_parent_keyword !== undefined) page.suggested_parent_keyword = data.suggested_parent_keyword;
   }
   return null;
 }
