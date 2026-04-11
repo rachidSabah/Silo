@@ -29,6 +29,22 @@ export function authFetch(url: string | URL | globalThis.Request, token: string 
 export function sanitizeHTML(html: string): string {
   if (!html) return '';
   return html
+    // Remove <body> tags — AI sometimes wraps output in <body> with white background
+    .replace(/<body\b[^>]*>/gi, '')
+    .replace(/<\/body>/gi, '')
+    // Remove <html> and <head> tags
+    .replace(/<html\b[^>]*>/gi, '')
+    .replace(/<\/html>/gi, '')
+    .replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, '')
+    // Remove <style> blocks — AI-generated CSS (like body{background:white}) breaks dark mode
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+    // Remove <font> tags — legacy HTML with color/bgcolor attributes
+    .replace(/<font\b[^>]*>/gi, '')
+    .replace(/<\/font>/gi, '')
+    // Remove bgcolor attributes on any element (e.g., <table bgcolor="white">)
+    .replace(/\s+bgcolor\s*=\s*(?:"[^"]*"|'[^']*')/gi, '')
+    // Remove text, link, vlink, alink attributes (body-style color attributes on any element)
+    .replace(/\s+(?:text|link|vlink|alink)\s*=\s*(?:"[^"]*"|'[^']*')/gi, '')
     // Remove script tags and their content
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
     // Remove dangerous tags

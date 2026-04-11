@@ -508,28 +508,32 @@ function inferPageType(key: string, explicitType?: string): string {
 
 export async function expandKeywords(seedKeywords: string[], niche: string, language: string, req?: NextRequest): Promise<string[]> {
   const safeKeywords = Array.isArray(seedKeywords) ? seedKeywords : [niche || 'seo'].filter(Boolean);
+  const safeNiche = niche || 'seo';
+  const safeLanguage = language || 'en';
   const content = await callAI([
-    { role: 'system', content: `You are an expert SEO keyword researcher specializing in the "${niche}" niche. Given seed keywords, expand them into a comprehensive list of keywords and long-tail variations that are DIRECTLY relevant to "${niche}".
+    { role: 'system', content: `You are a Principal SEO Architect specializing in keyword research for the "${safeNiche}" niche. Given seed keywords, expand them into a comprehensive list of keywords and long-tail variations that are DIRECTLY relevant to "${safeNiche}".
 
 RULES:
-1. Every keyword must be a term that someone interested in "${niche}" would actually search for.
+1. Every keyword must be a term that someone interested in "${safeNiche}" would actually search for.
 2. Include a mix of: informational keywords (how to, what is, guide), commercial keywords (best, top, review, comparison), and transactional keywords (buy, price, cheap, discount).
-3. Include long-tail variations that combine the niche name with specific aspects (e.g., "${niche} for beginners", "${niche} tools", "best ${niche} strategies").
-4. Do NOT include generic keywords that could apply to any niche — every keyword must be specifically about "${niche}".
+3. Include long-tail variations that combine the niche name with specific aspects (e.g., "${safeNiche} for beginners", "${safeNiche} tools", "best ${safeNiche} strategies").
+4. Do NOT include generic keywords that could apply to any niche — every keyword must be specifically about "${safeNiche}".
 5. Include the niche name itself and common abbreviations/synonyms.
 
-Return ONLY a JSON array of keyword strings. No other text. Language: ${language}.` },
-    { role: 'user', content: `Expand these seed keywords for the niche "${niche}": ${safeKeywords.join(', ')}
+Return ONLY a JSON array of keyword strings. No other text. No markdown fences. Language: ${safeLanguage}.` },
+    { role: 'user', content: `Expand these seed keywords for the niche "${safeNiche}": ${safeKeywords.join(', ')}
 
-Generate 30-50 keywords that are ALL directly relevant to "${niche}". Include the niche name in many of the long-tail variations. Return as a JSON array.` },
+Generate 30-50 keywords that are ALL directly relevant to "${safeNiche}". Include the niche name in many of the long-tail variations. Return as a JSON array.` },
   ], req);
   return extractArray<string>(content, 'keywords', safeKeywords);
 }
 
 export async function generateSilos(niche: string, keywords: string[], language: string, req?: NextRequest): Promise<{ name: string; keywords: string[] }[]> {
   const safeKeywords = Array.isArray(keywords) ? keywords : [niche || 'seo'].filter(Boolean);
+  const safeNiche = niche || 'seo';
+  const safeLanguage = language || 'en';
   const content = await callAI([
-    { role: 'system', content: `You are an expert SEO architect who specializes in building tightly-themed content silo structures for websites. Your silos must be DIRECTLY relevant to the target niche and keywords.
+    { role: 'system', content: `You are a Principal SEO Architect specializing in building tightly-themed content silo structures for websites. Your silos must be DIRECTLY relevant to the target niche and keywords.
 
 RULES:
 1. Every silo must be a distinct sub-topic WITHIN the niche — not a generic category that could apply to any industry.
@@ -542,16 +546,16 @@ Return ONLY a JSON array of objects. Each object must have:
 - "name": the silo category name (2-4 words, specific to the niche)
 - "keywords": array of 5-8 relevant keywords for that silo (must include the niche name or a close variant in at least 2 keywords)
 
-No other text. Language: ${language}.` },
-    { role: 'user', content: `Create 4-8 content silo categories for the niche "${niche}".
+No other text. No markdown fences. Language: ${safeLanguage}.` },
+    { role: 'user', content: `Create 4-8 content silo categories for the niche "${safeNiche}".
 
 Seed keywords to cover: ${safeKeywords.join(', ')}
 
-IMPORTANT: Each silo must be a DIRECTLY relevant sub-topic of "${niche}". Every keyword in every silo must make sense for someone searching about "${niche}". Do NOT generate generic categories — they must be specific to this exact niche.
+IMPORTANT: Each silo must be a DIRECTLY relevant sub-topic of "${safeNiche}". Every keyword in every silo must make sense for someone searching about "${safeNiche}". Do NOT generate generic categories — they must be specific to this exact niche.
 
 Return as a JSON array.` },
   ], req);
-  return extractArray<{ name: string; keywords: string[] }>(content, 'silos', [{ name: niche, keywords: safeKeywords }]);
+  return extractArray<{ name: string; keywords: string[] }>(content, 'silos', [{ name: safeNiche, keywords: safeKeywords }]);
 }
 
 export interface GeneratePagesResult {
@@ -570,31 +574,39 @@ export async function generatePages(
   req?: NextRequest,
   seedKeywords?: string[]
 ): Promise<GeneratePagesResult> {
-  const seedKwStr = seedKeywords && seedKeywords.length > 0
-    ? `\n\nCore niche keywords to weave throughout all pages: ${seedKeywords.join(', ')}`
-    : '';
+  // Safe fallbacks for optional data
+  const safeNiche = niche || 'the target industry';
+  const safeLanguage = language || 'en';
+  const safeSeedKeywords = Array.isArray(seedKeywords) && seedKeywords.length > 0 ? seedKeywords : [];
+  const safeSilos = Array.isArray(silos) && silos.length > 0 ? silos : [{ name: safeNiche, keywords: [safeNiche] }];
 
-  const siloDetails = silos.map(s =>
-    `Silo: "${s.name}"\n  Keywords: ${s.keywords.join(', ')}\n  Focus: Create pages that directly address search queries related to these exact keywords within the "${niche}" niche.`
+  const siloDetails = safeSilos.map(s =>
+    `Silo: "${s.name}"\n  Keywords: ${s.keywords.join(', ')}\n  Focus: Create pages that directly address search queries related to these exact keywords within the "${safeNiche}" niche.`
   ).join('\n\n');
 
-  const content = await callAI([
-    { role: 'system', content: `You are an expert SEO content strategist specializing in the "${niche}" niche. Your job is to create a comprehensive page structure for each content silo that is DIRECTLY relevant to the niche and the silo's specific keywords.
+  // Build the structured system prompt — uses SEO_MASTER_PROMPT philosophy adapted for page structure generation
+  const systemPrompt = `You are a Principal SEO Architect specializing in silo-based content architecture for the "${safeNiche}" niche.
 
-CRITICAL RELEVANCE RULES:
-1. EVERY page title must be directly about "${niche}" — not generic content that could apply to any topic.
+### CORE SILO ARCHITECTURE RULES (HCU COMPLIANT)
+1. Information Gain: Every page must offer a unique angle that no competitor covers. Avoid generic titles like "Introduction to..." or "Best Practices for..." — create niche-specific titles like "Complete Guide to [Specific Aspect] in ${safeNiche}".
+2. Anti-Cannibalization: Each page within a silo must target a DISTINCT keyword cluster. No two pages should compete for the same primary keyword.
+3. E-E-A-T: Page titles and descriptions must signal deep expertise in "${safeNiche}". Use specific terminology, frameworks, and industry concepts.
+4. Search Intent Mapping: Pillar pages target broad informational + commercial intent. Cluster pages target specific informational intent. Blog posts target long-tail mixed intent.
+
+### CRITICAL RELEVANCE RULES
+1. EVERY page title must be directly about "${safeNiche}" — not generic content that could apply to any topic.
 2. EVERY page's keywords must include at least one keyword from the silo's keyword list OR a closely related long-tail variant that contains the niche term.
-3. Pillar pages must be comprehensive guides that serve as the authoritative resource for their silo's main topic within "${niche}".
-4. Cluster pages must be focused deep-dives into specific subtopics of the pillar — still directly about "${niche}".
-5. Blog posts must address real questions, trends, or how-to topics that people searching about "${niche}" would actually look for.
-6. Meta descriptions must clearly indicate the page is about "${niche}" and include primary keywords naturally.
-7. Do NOT create generic pages like "Introduction to..." or "Best Practices for..." — instead create niche-specific titles like "Complete Guide to [Specific Aspect] in ${niche}" or "How to [Niche-Specific Action] for [Target Audience]".${seedKwStr}
+3. Pillar pages must be comprehensive guides — the authoritative resource for their silo's main topic within "${safeNiche}".
+4. Cluster pages must be focused deep-dives into specific subtopics of the pillar — still directly about "${safeNiche}".
+5. Blog posts must address real questions, trends, or how-to topics that people searching about "${safeNiche}" would actually look for.
+6. Meta descriptions must clearly indicate the page is about "${safeNiche}" and include primary keywords naturally.${safeSeedKeywords.length > 0 ? `\n7. Core niche keywords to weave throughout all pages: ${safeSeedKeywords.join(', ')}` : ''}
 
-PAGE STRUCTURE PER SILO:
-- 1 pillar page: the definitive guide for this silo's topic within "${niche}"
+### PAGE STRUCTURE PER SILO
+- 1 pillar page: the definitive guide for this silo's topic within "${safeNiche}"
 - 2-4 cluster pages: in-depth subtopic pages that support the pillar
 - 2-4 blog posts: timely, engaging content targeting long-tail queries
 
+### OUTPUT FORMAT
 Return ONLY a JSON object where:
 - Keys are EXACTLY the silo names provided below
 - Values are arrays of page objects
@@ -606,13 +618,22 @@ Each page object must have:
 - "keywords": array of 3-5 keywords, at least 1 must come from the silo's keyword list
 - "type": "pillar" | "cluster" | "blog"
 
-No other text. Language: ${language}.` },
-    { role: 'user', content: `Generate pages for these silos in the "${niche}" niche:\n\n${siloDetails}\n\nRemember: Every page must be DIRECTLY relevant to "${niche}". Use the silo keywords as the foundation for each page's keyword strategy. Pages that are not specifically about "${niche}" will be rejected.` },
+No other text. No markdown fences. No explanations. Language: ${safeLanguage}.`;
+
+  const userPayload = `Generate pages for these silos in the "${safeNiche}" niche:
+
+${siloDetails}
+
+Remember: Every page must be DIRECTLY relevant to "${safeNiche}". Use the silo keywords as the foundation for each page's keyword strategy. Pages that are not specifically about "${safeNiche}" will be rejected. Return ONLY the JSON object.`;
+
+  const content = await callAI([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPayload },
   ], req);
 
   console.log('[generatePages] AI raw response length:', content.length, 'first 500 chars:', content.slice(0, 500));
 
-  const result = extractPagesBySilo(content, silos);
+  const result = extractPagesBySilo(content, safeSilos);
   console.log('[generatePages] Extracted keys:', Object.keys(result), 'total pages:', Object.values(result).reduce((sum, arr) => sum + arr.length, 0));
 
   // If extractPagesBySilo returned a result, return it
@@ -634,7 +655,7 @@ No other text. Language: ${language}.` },
       const bySilo: Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> = {};
       for (const item of parsed) {
         if (item && typeof item === 'object' && 'title' in item && item.title) {
-          const siloKey = (item as Record<string, unknown>).silo_name || (item as Record<string, unknown>).siloName || (item as Record<string, unknown>).silo || silos[0]?.name || 'Default';
+          const siloKey = (item as Record<string, unknown>).silo_name || (item as Record<string, unknown>).siloName || (item as Record<string, unknown>).silo || safeSilos[0]?.name || 'Default';
           if (!bySilo[siloKey as string]) bySilo[siloKey as string] = [];
           bySilo[siloKey as string].push({
             title: item.title as string,
@@ -728,14 +749,23 @@ export async function suggestInternalLinks(
   silos: { id: string; name: string }[],
   req?: NextRequest
 ): Promise<{ from: string; to: string; anchor: string }[]> {
+  const safePages = Array.isArray(pages) ? pages : [];
+  const safeSilos = Array.isArray(silos) ? silos : [];
+  if (safePages.length === 0) return [];
   const content = await callAI([
-    { role: 'system', content: `You are an SEO internal linking expert. Given a list of pages and their silos, suggest internal links between pages. Prioritize:
+    { role: 'system', content: `You are a Principal SEO Architect specializing in internal linking strategy. Given a list of pages and their silos, suggest internal links between pages. Prioritize:
 1. Links from pillar pages to cluster/blog pages in the same silo
-2. Links between related cluster pages
-3. Cross-silo links where topics overlap
+2. Links between related cluster pages in the same silo
+3. Cross-silo links where topics overlap (only when contextually natural)
 
-Return ONLY a JSON array of link objects with "from" (page id), "to" (page id), and "anchor" (link anchor text). No other text.` },
-    { role: 'user', content: `Suggest internal links for these pages:\n${JSON.stringify(pages.slice(0, 50))}\nSilos: ${JSON.stringify(silos)}` },
+Rules:
+- Each link must have a specific, keyword-rich anchor text (3-6 words)
+- Anchor text must describe the target page's content, not be generic like "click here"
+- Avoid linking to the same page multiple times
+- Maximum 3 links from any single page
+
+Return ONLY a JSON array of link objects with "from" (page id), "to" (page id), and "anchor" (link anchor text). No other text. No markdown fences.` },
+    { role: 'user', content: `Suggest internal links for these pages:\n${JSON.stringify(safePages.slice(0, 50))}\nSilos: ${JSON.stringify(safeSilos)}` },
   ], req);
   return extractArray<{ from: string; to: string; anchor: string }>(content, 'links', []);
 }
@@ -808,15 +838,50 @@ export async function generateContentBrief(
   niche: string,
   req?: NextRequest
 ): Promise<ContentBrief | null> {
+  // Safe fallbacks for optional data
+  const safeKeywords = Array.isArray(keywords) && keywords.length > 0 ? keywords : [pageTitle];
+  const safeNiche = niche || 'the target industry';
+  const safeSiloName = siloName || 'General';
+  const safePageType = pageType || 'blog';
+  const safeSiblingPages = Array.isArray(siblingPages) ? siblingPages : [];
+
+  const userPayload = `Generate a comprehensive content brief for:
+
+- Target Keyword: ${safeKeywords[0]}
+- Secondary Keywords: ${safeKeywords.slice(1).join(', ') || 'N/A'}
+- Page Type: ${safePageType}
+- Silo: ${safeSiloName}
+- Niche: ${safeNiche}
+- Search Intent: ${safePageType === 'pillar' ? 'Informational + Commercial' : safePageType === 'cluster' ? 'Informational' : 'Mixed'}
+- Brand Voice: Professional and authoritative
+- Sibling pages in silo (AVOID deep coverage of these topics): ${safeSiblingPages.length > 0
+    ? safeSiblingPages.map(p => `"${p.title}" (${p.type})`).join(', ')
+    : 'None (standalone page)'}
+
+Page-type specific requirements:
+${safePageType === 'pillar'
+    ? 'This is a PILLAR page — create a brief for a comprehensive, encyclopedic guide covering the topic breadth-first. Target 2500-3500 words. Include 6-10 H2 sections.'
+    : safePageType === 'cluster'
+    ? 'This is a CLUSTER page — create a brief for a focused deep-dive into one specific subtopic. Target 1500-2500 words. Must link UP to the pillar page. Include 4-6 H2 sections.'
+    : safePageType === 'blog'
+    ? 'This is a BLOG post — create a brief for an engaging, timely article targeting a long-tail query. Target 1000-1500 words. Conversational yet authoritative tone.'
+    : 'Create a brief appropriate for this page type within the silo structure.'}
+
+Return ONLY a JSON object with these fields:
+- "title": optimized H1 heading
+- "targetKeywords": array of 3-5 primary keywords
+- "searchIntent": one of informational/transactional/commercial/navigational
+- "contentType": guide/tutorial/listicle/comparison/etc
+- "wordCountTarget": e.g., "2000-2500"
+- "outline": array of H2 section headings
+- "keyPoints": array of must-cover points with specific data/expertise requirements
+- "internalLinkTargets": array of suggested pages to link to
+- "metaDescription": 150-160 chars including primary keyword
+- "callToAction": suggested CTA aligned with search intent`;
+
   const content = await callAI([
-    { role: 'system', content: `You are an SEO content strategist creating detailed content briefs. Given a page's context within a silo structure, generate a comprehensive content brief. The brief should be tailored to the page's role (pillar pages need comprehensive guides, cluster pages need focused deep-dives, blog posts need engaging content). Return ONLY a JSON object with these fields: "title" (optimized H1), "targetKeywords" (array of 3-5), "searchIntent" (informational/transactional/commercial/navigational), "contentType" (guide/tutorial/listicle/comparison/etc), "wordCountTarget" (e.g., "2000-2500"), "outline" (array of H2 sections), "keyPoints" (array of must-cover points), "internalLinkTargets" (array of suggested pages to link to from this content), "metaDescription" (150-160 chars), "callToAction" (suggested CTA). No other text.` },
-    { role: 'user', content: `Generate a content brief for:
-- Page Title: ${pageTitle}
-- Page Type: ${pageType}
-- Silo: ${siloName}
-- Keywords: ${keywords.join(', ')}
-- Niche: ${niche}
-- Sibling pages in silo: ${JSON.stringify(siblingPages)}` },
+    { role: 'system', content: SEO_MASTER_PROMPT },
+    { role: 'user', content: userPayload },
   ], req);
   // Extract brief from AI response, handling wrapped formats like {brief: {...}}
   try {

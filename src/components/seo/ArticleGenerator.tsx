@@ -794,7 +794,10 @@ ${allContent}
                     </div>
                   </div>
                 ) : (
-                  <div className="article-content bg-slate-900 border border-slate-700 rounded-xl p-6 md:p-8">
+                  <div
+                    className="article-content border border-slate-700 rounded-xl p-6 md:p-8"
+                    style={{ backgroundColor: '#0f172a', color: '#e2e8f0' }}
+                  >
                     <div dangerouslySetInnerHTML={{ __html: sanitizeHTML(page.content) }} />
                   </div>
                 )}
