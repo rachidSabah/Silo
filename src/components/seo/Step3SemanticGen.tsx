@@ -7,6 +7,96 @@ import PageTypeBadge from './PageTypeBadge';
 import VisualTree from './VisualTree';
 import { Sparkles, ArrowLeft, ArrowRight, Loader2, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 
+// Client-side emergency page extractor — tries to find pages in any AI response structure
+function clientSideExtractPages(
+  data: unknown,
+  silos: Array<{ id: string; name: string; keywords: string[] }>,
+  projectId: string
+): Array<{
+  id: string; projectId: string; siloId: string | null; title: string; slug: string;
+  metaDescription: string; keywords: string[]; type: 'pillar' | 'cluster' | 'blog' | 'category' | 'landing';
+  parentId: string | null; status: 'draft' | 'in_progress' | 'review' | 'published'; content: string; wordCount: number;
+}> {
+  const pages: Array<{
+    id: string; projectId: string; siloId: string | null; title: string; slug: string;
+    metaDescription: string; keywords: string[]; type: 'pillar' | 'cluster' | 'blog' | 'category' | 'landing';
+    parentId: string | null; status: 'draft' | 'in_progress' | 'review' | 'published'; content: string; wordCount: number;
+  }> = [];
+
+  const inferType = (key: string, explicitType?: string): 'pillar' | 'cluster' | 'blog' | 'category' | 'landing' => {
+    if (explicitType && ['pillar', 'cluster', 'blog', 'category', 'landing'].includes(explicitType)) return explicitType as 'pillar' | 'cluster' | 'blog' | 'category' | 'landing';
+    const lower = key.toLowerCase();
+    if (lower.includes('pillar')) return 'pillar';
+    if (lower.includes('cluster')) return 'cluster';
+    if (lower.includes('blog')) return 'blog';
+    return 'blog';
+  };
+
+  const makePage = (page: Record<string, unknown>, siloId: string | null, inferredType?: string) => {
+    if (!page || typeof page !== 'object' || !page.title) return;
+    pages.push({
+      id: uuidv4(),
+      projectId,
+      siloId,
+      title: String(page.title),
+      slug: String(page.slug || String(page.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')),
+      metaDescription: String(page.meta_description || page.metaDescription || page.meta_desc || page.description || ''),
+      keywords: Array.isArray(page.keywords) ? page.keywords.map(String) : [],
+      type: inferType(String(page.type || ''), inferredType),
+      parentId: null,
+      status: 'draft',
+      content: '',
+      wordCount: 0,
+    });
+  };
+
+  // Recursively search for page-like objects
+  function scan(obj: unknown, parentKey: string, depth: number): void {
+    if (depth > 6 || !obj || typeof obj !== 'object') return;
+
+    if (Array.isArray(obj)) {
+      for (const item of obj) {
+        if (item && typeof item === 'object' && !Array.isArray(item) && 'title' in (item as Record<string, unknown>)) {
+          // Try to find silo from item's silo_name field
+          const siloRef = String((item as Record<string, unknown>).silo_name || (item as Record<string, unknown>).siloName || (item as Record<string, unknown>).silo || '');
+          const silo = silos.find(s => s.name === siloRef || s.name.toLowerCase() === siloRef.toLowerCase());
+          makePage(item as Record<string, unknown>, silo?.id || null, inferType(parentKey));
+        }
+      }
+      return;
+    }
+
+    // It's an object - check if this looks like a silo entry
+    const record = obj as Record<string, unknown>;
+    for (const [key, val] of Object.entries(record)) {
+      if (!val || typeof val !== 'object') continue;
+
+      // Check if key matches a silo name
+      const silo = silos.find(s => s.name === key || s.name.toLowerCase() === key.toLowerCase());
+
+      if (Array.isArray(val)) {
+        // Array of page objects under a silo-named key
+        for (const item of val) {
+          if (item && typeof item === 'object' && !Array.isArray(item) && 'title' in (item as Record<string, unknown>)) {
+            makePage(item as Record<string, unknown>, silo?.id || null, inferType(key));
+          }
+        }
+      } else if (typeof val === 'object') {
+        if ('title' in (val as Record<string, unknown>)) {
+          // Single page object
+          makePage(val as Record<string, unknown>, silo?.id || null, inferType(key));
+        } else {
+          // Nested structure - recurse
+          scan(val, key, depth + 1);
+        }
+      }
+    }
+  }
+
+  scan(data, '', 0);
+  return pages;
+}
+
 export default function Step3SemanticGen() {
   const { project, silos, pages, setPages, setStep, token } = useStore();
   const [generating, setGenerating] = useState(false);
@@ -161,8 +251,37 @@ export default function Step3SemanticGen() {
           setError('AI generated data but no valid pages could be extracted. Please try again.');
         }
       } else {
-        console.error('[Step3] No recognizable page data in response. Response keys:', Object.keys(data), 'Preview:', JSON.stringify(data).slice(0, 300));
-        setError('AI returned unexpected format. Please try again. (Response had no recognizable page data)');
+        // Check if server sent debug info with raw AI response
+        const debugInfo = data._debug as { rawLength?: number; rawPreview?: string; parseError?: string } | undefined;
+        console.error('[Step3] No recognizable page data in response. Response keys:', Object.keys(data), 'Debug:', debugInfo);
+
+        // Last-ditch: try to parse the raw AI preview on the client side
+        if (debugInfo?.rawPreview) {
+          try {
+            const rawText = debugInfo.rawPreview;
+            // Try to find JSON in the raw text
+            const jsonMatch = rawText.indexOf('{');
+            if (jsonMatch !== -1) {
+              const jsonStr = rawText.slice(jsonMatch);
+              const parsed = JSON.parse(jsonStr);
+              console.log('[Step3] Client-side raw parse succeeded, trying to extract pages...');
+              // Try to extract pages from whatever structure we got
+              const extracted = clientSideExtractPages(parsed, silos, project.id);
+              if (extracted.length > 0) {
+                setPages(extracted);
+                return; // Success!
+              }
+            }
+          } catch (e) {
+            console.error('[Step3] Client-side raw parse also failed:', e);
+          }
+        }
+
+        if (debugInfo?.rawPreview) {
+          setError(`AI returned unexpected format. Server received ${debugInfo.rawLength} chars. ${debugInfo.parseError || ''}. Please try again.`);
+        } else {
+          setError('AI returned unexpected format. Please try again. (Response had no recognizable page data)');
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate pages. Please try again.');
