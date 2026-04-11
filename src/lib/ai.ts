@@ -27,13 +27,22 @@ async function callOpenAI(apiKey: string, model: string, messages: ChatMessage[]
   return data.choices?.[0]?.message?.content || '';
 }
 
+// Map deprecated Gemini model names to current ones
+const GEMINI_MODEL_MAP: Record<string, string> = {
+  'gemini-1.5-pro': 'gemini-2.0-flash',
+  'gemini-1.5-flash': 'gemini-2.0-flash-lite',
+  'gemini-pro': 'gemini-2.0-flash',
+  'gemini-2.5-pro': 'gemini-2.5-pro-preview-05-06',
+};
+
 async function callGemini(apiKey: string, model: string, messages: ChatMessage[]): Promise<string> {
+  const safeModel = GEMINI_MODEL_MAP[model] || model;
   const contents = messages.map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }));
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${safeModel}:generateContent?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents, generationConfig: { temperature: 0.7 } }),

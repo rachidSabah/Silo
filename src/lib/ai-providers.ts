@@ -14,7 +14,7 @@ export const AI_PROVIDERS: Record<string, AIProvider> = {
   },
   gemini: {
     name: 'Google Gemini',
-    models: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+    models: ['gemini-2.5-pro-preview-05-06', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'],
     defaultModel: 'gemini-2.0-flash',
   },
   claude: {
