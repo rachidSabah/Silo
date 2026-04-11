@@ -509,8 +509,19 @@ function inferPageType(key: string, explicitType?: string): string {
 export async function expandKeywords(seedKeywords: string[], niche: string, language: string, req?: NextRequest): Promise<string[]> {
   const safeKeywords = Array.isArray(seedKeywords) ? seedKeywords : [niche || 'seo'].filter(Boolean);
   const content = await callAI([
-    { role: 'system', content: `You are an SEO keyword research expert. Given seed keywords, expand them into a comprehensive list of related keywords and long-tail variations. Return ONLY a JSON array of strings, no other text. Language: ${language}.` },
-    { role: 'user', content: `Expand these seed keywords for the niche "${niche}": ${safeKeywords.join(', ')}. Return 30-50 related keywords as a JSON array.` },
+    { role: 'system', content: `You are an expert SEO keyword researcher specializing in the "${niche}" niche. Given seed keywords, expand them into a comprehensive list of keywords and long-tail variations that are DIRECTLY relevant to "${niche}".
+
+RULES:
+1. Every keyword must be a term that someone interested in "${niche}" would actually search for.
+2. Include a mix of: informational keywords (how to, what is, guide), commercial keywords (best, top, review, comparison), and transactional keywords (buy, price, cheap, discount).
+3. Include long-tail variations that combine the niche name with specific aspects (e.g., "${niche} for beginners", "${niche} tools", "best ${niche} strategies").
+4. Do NOT include generic keywords that could apply to any niche — every keyword must be specifically about "${niche}".
+5. Include the niche name itself and common abbreviations/synonyms.
+
+Return ONLY a JSON array of keyword strings. No other text. Language: ${language}.` },
+    { role: 'user', content: `Expand these seed keywords for the niche "${niche}": ${safeKeywords.join(', ')}
+
+Generate 30-50 keywords that are ALL directly relevant to "${niche}". Include the niche name in many of the long-tail variations. Return as a JSON array.` },
   ], req);
   return extractArray<string>(content, 'keywords', safeKeywords);
 }
@@ -518,8 +529,27 @@ export async function expandKeywords(seedKeywords: string[], niche: string, lang
 export async function generateSilos(niche: string, keywords: string[], language: string, req?: NextRequest): Promise<{ name: string; keywords: string[] }[]> {
   const safeKeywords = Array.isArray(keywords) ? keywords : [niche || 'seo'].filter(Boolean);
   const content = await callAI([
-    { role: 'system', content: `You are an SEO architect specializing in website silo structure. Given a niche and keywords, suggest optimal content silo categories. Each silo should group related topics together. Return ONLY a JSON array of objects with "name" (silo name) and "keywords" (array of keywords for that silo). No other text. Language: ${language}.` },
-    { role: 'user', content: `Generate 4-8 silo categories for the niche "${niche}" with these keywords: ${safeKeywords.join(', ')}. Return as JSON array.` },
+    { role: 'system', content: `You are an expert SEO architect who specializes in building tightly-themed content silo structures for websites. Your silos must be DIRECTLY relevant to the target niche and keywords.
+
+RULES:
+1. Every silo must be a distinct sub-topic WITHIN the niche — not a generic category that could apply to any industry.
+2. Silo keywords must be specific, search-intent-driven terms that real users would search for in this niche.
+3. Each silo should target a different facet of the niche to avoid keyword overlap/cannibalization between silos.
+4. Include a mix of commercial and informational keywords in each silo.
+5. Silo names should be descriptive 2-4 word phrases that clearly indicate the sub-topic.
+
+Return ONLY a JSON array of objects. Each object must have:
+- "name": the silo category name (2-4 words, specific to the niche)
+- "keywords": array of 5-8 relevant keywords for that silo (must include the niche name or a close variant in at least 2 keywords)
+
+No other text. Language: ${language}.` },
+    { role: 'user', content: `Create 4-8 content silo categories for the niche "${niche}".
+
+Seed keywords to cover: ${safeKeywords.join(', ')}
+
+IMPORTANT: Each silo must be a DIRECTLY relevant sub-topic of "${niche}". Every keyword in every silo must make sense for someone searching about "${niche}". Do NOT generate generic categories — they must be specific to this exact niche.
+
+Return as a JSON array.` },
   ], req);
   return extractArray<{ name: string; keywords: string[] }>(content, 'silos', [{ name: niche, keywords: safeKeywords }]);
 }
@@ -537,16 +567,47 @@ export async function generatePages(
   silos: { name: string; keywords: string[] }[],
   niche: string,
   language: string,
-  req?: NextRequest
+  req?: NextRequest,
+  seedKeywords?: string[]
 ): Promise<GeneratePagesResult> {
-  const content = await callAI([
-    { role: 'system', content: `You are an SEO content strategist. Given silo categories and their keywords, generate a comprehensive page structure for each silo. Each silo should have:
-- 1 pillar page (comprehensive guide, type "pillar")
-- 2-4 cluster pages (in-depth subtopics, type "cluster")
-- 2-4 blog posts (type "blog")
+  const seedKwStr = seedKeywords && seedKeywords.length > 0
+    ? `\n\nCore niche keywords to weave throughout all pages: ${seedKeywords.join(', ')}`
+    : '';
 
-Return ONLY a JSON object where keys are silo names and values are arrays of page objects. Each page object must have: "title", "slug" (URL-friendly, lowercase, hyphens), "meta_description" (150-160 chars), "keywords" (array of 3-5 keywords), "type" (pillar|cluster|blog). No other text. Language: ${language}.` },
-    { role: 'user', content: `Generate pages for silos in niche "${niche}":\n${silos.map(s => `Silo: ${s.name} - Keywords: ${s.keywords.join(', ')}`).join('\n')}` },
+  const siloDetails = silos.map(s =>
+    `Silo: "${s.name}"\n  Keywords: ${s.keywords.join(', ')}\n  Focus: Create pages that directly address search queries related to these exact keywords within the "${niche}" niche.`
+  ).join('\n\n');
+
+  const content = await callAI([
+    { role: 'system', content: `You are an expert SEO content strategist specializing in the "${niche}" niche. Your job is to create a comprehensive page structure for each content silo that is DIRECTLY relevant to the niche and the silo's specific keywords.
+
+CRITICAL RELEVANCE RULES:
+1. EVERY page title must be directly about "${niche}" — not generic content that could apply to any topic.
+2. EVERY page's keywords must include at least one keyword from the silo's keyword list OR a closely related long-tail variant that contains the niche term.
+3. Pillar pages must be comprehensive guides that serve as the authoritative resource for their silo's main topic within "${niche}".
+4. Cluster pages must be focused deep-dives into specific subtopics of the pillar — still directly about "${niche}".
+5. Blog posts must address real questions, trends, or how-to topics that people searching about "${niche}" would actually look for.
+6. Meta descriptions must clearly indicate the page is about "${niche}" and include primary keywords naturally.
+7. Do NOT create generic pages like "Introduction to..." or "Best Practices for..." — instead create niche-specific titles like "Complete Guide to [Specific Aspect] in ${niche}" or "How to [Niche-Specific Action] for [Target Audience]".${seedKwStr}
+
+PAGE STRUCTURE PER SILO:
+- 1 pillar page: the definitive guide for this silo's topic within "${niche}"
+- 2-4 cluster pages: in-depth subtopic pages that support the pillar
+- 2-4 blog posts: timely, engaging content targeting long-tail queries
+
+Return ONLY a JSON object where:
+- Keys are EXACTLY the silo names provided below
+- Values are arrays of page objects
+
+Each page object must have:
+- "title": specific, keyword-rich title that includes niche-relevant terms
+- "slug": URL-friendly, lowercase, hyphens, includes niche keywords
+- "meta_description": 150-160 chars, includes primary keyword and niche context
+- "keywords": array of 3-5 keywords, at least 1 must come from the silo's keyword list
+- "type": "pillar" | "cluster" | "blog"
+
+No other text. Language: ${language}.` },
+    { role: 'user', content: `Generate pages for these silos in the "${niche}" niche:\n\n${siloDetails}\n\nRemember: Every page must be DIRECTLY relevant to "${niche}". Use the silo keywords as the foundation for each page's keyword strategy. Pages that are not specifically about "${niche}" will be rejected.` },
   ], req);
 
   console.log('[generatePages] AI raw response length:', content.length, 'first 500 chars:', content.slice(0, 500));

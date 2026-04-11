@@ -84,7 +84,7 @@ async function handleRequest(req: NextRequest) {
       // AI
       case path === 'ai/expand-keywords' && m === 'POST': { const d = await body(req); const result = await expandKeywords(d.seedKeywords || d.keywords, d.niche, d.language, req); return json({ keywords: result }); }
       case path === 'ai/generate-silos' && m === 'POST': { const d = await body(req); const silos = await generateSilos(d.niche, d.keywords, d.language, req); return json({ silos }); }
-      case path === 'ai/generate-pages' && m === 'POST': { const d = await body(req); const result = await generatePages(d.silos, d.niche, d.language, req); return json(result); }
+      case path === 'ai/generate-pages' && m === 'POST': { const d = await body(req); const result = await generatePages(d.silos, d.niche, d.language, req, d.seedKeywords); return json(result); }
       case path === 'ai/keyword-cluster' && m === 'POST': { const d = await body(req); const result = await groupKeywords(d.keywords, d.niche, req); return json({ clusters: result }); }
       case path === 'ai/search-intent' && m === 'POST': { const d = await body(req); const result = await mapSearchIntent(d.keywords, req); return json({ intents: result }); }
       case path === 'ai/content-gap' && m === 'POST': { const d = await body(req); const result = await analyzeContentGap(d.userSilos, d.competitorSilos, d.niche, req); return json({ gaps: result }); }

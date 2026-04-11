@@ -130,6 +130,7 @@ export default function Step3SemanticGen() {
           silos: siloData,
           niche: project.niche,
           language: project.language,
+          seedKeywords: project.seedKeywords || [],
         }),
       });
 
