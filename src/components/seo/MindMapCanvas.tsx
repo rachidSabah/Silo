@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { useStore, type Silo, type Page } from '@/store/useStore';
 import {
   calculateSiloHealth, getHealthDot, getHealthColor, detectCannibalization,

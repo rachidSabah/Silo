@@ -27,6 +27,19 @@ interface SavedProject {
   created_at: string;
 }
 
+// Safely parse keywords from DB — handles both JSON array and comma-separated string formats
+function safeParseKeywords(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    return [String(parsed)];
+  } catch {
+    // Not valid JSON — treat as comma-separated string
+    return raw.split(',').map(s => s.trim()).filter(Boolean);
+  }
+}
+
 export default function Step5ExportSave() {
   const { project, silos, pages, setStep, setProject, setSilos, setPages, setSavedProjectId, savedProjectId, resetStore, token } = useStore();
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
@@ -122,6 +135,7 @@ export default function Step5ExportSave() {
           language: project.language,
           niche: project.niche,
           seedKeywords: project.seedKeywords,
+          seed_keywords: JSON.stringify(project.seedKeywords || []),
         }),
       });
 
@@ -129,8 +143,9 @@ export default function Step5ExportSave() {
         throw new Error('Failed to save project');
       }
 
+      let saveErrors = 0;
       for (const silo of silos) {
-        await fetch('/api/silos', {
+        const siloRes = await fetch('/api/silos', {
           method: 'POST',
           headers: saveHeaders,
           body: JSON.stringify({
@@ -140,10 +155,11 @@ export default function Step5ExportSave() {
             keywords: silo.keywords ? JSON.stringify(silo.keywords) : null,
           }),
         });
+        if (!siloRes.ok) saveErrors++;
       }
 
       for (const page of pages) {
-        await fetch('/api/pages', {
+        const pageRes = await fetch('/api/pages', {
           method: 'POST',
           headers: saveHeaders,
           body: JSON.stringify({
@@ -157,12 +173,19 @@ export default function Step5ExportSave() {
             type: page.type,
             parent_id: page.parentId,
             status: page.status || 'draft',
+            content: page.content || '',
+            word_count: page.wordCount || 0,
           }),
         });
+        if (!pageRes.ok) saveErrors++;
       }
 
       setSavedProjectId(project.id);
-      setSaveMessage({ type: 'success', text: 'Project saved to database successfully!' });
+      if (saveErrors > 0) {
+        setSaveMessage({ type: 'error', text: `Project saved with ${saveErrors} errors. Some items may not have been saved.` });
+      } else {
+        setSaveMessage({ type: 'success', text: 'Project saved to database successfully!' });
+      }
       loadProjects();
     } catch (err) {
       console.error('Save failed:', err);
@@ -193,7 +216,7 @@ export default function Step5ExportSave() {
         domain: proj.domain,
         language: proj.language || 'en',
         niche: proj.niche || '',
-        seedKeywords: proj.seed_keywords ? JSON.parse(proj.seed_keywords) : [],
+        seedKeywords: safeParseKeywords(proj.seed_keywords),
       });
 
       setSilos(
@@ -201,22 +224,24 @@ export default function Step5ExportSave() {
           id: s.id,
           projectId: s.project_id,
           name: s.name,
-          keywords: s.keywords ? JSON.parse(s.keywords) : [],
+          keywords: safeParseKeywords(s.keywords),
         }))
       );
 
       setPages(
-        (dbPages || []).map((p: { id: string; project_id: string; silo_id: string | null; title: string; slug: string; meta_description: string; keywords: string; type: string; parent_id: string | null; status?: string }) => ({
+        (dbPages || []).map((p: { id: string; project_id: string; silo_id: string | null; title: string; slug: string; meta_description: string; keywords: string; type: string; parent_id: string | null; status?: string; content?: string; word_count?: number }) => ({
           id: p.id,
           projectId: p.project_id,
           siloId: p.silo_id,
           title: p.title,
           slug: p.slug,
           metaDescription: p.meta_description || '',
-          keywords: p.keywords ? JSON.parse(p.keywords) : [],
+          keywords: safeParseKeywords(p.keywords),
           type: (['pillar', 'cluster', 'blog', 'category', 'landing'].includes(p.type) ? p.type : 'blog') as 'pillar' | 'cluster' | 'blog' | 'category' | 'landing',
           parentId: p.parent_id,
           status: (['draft', 'in_progress', 'review', 'published'].includes(p.status || '') ? p.status : 'draft') as 'draft' | 'in_progress' | 'review' | 'published',
+          content: p.content || '',
+          wordCount: p.word_count || 0,
         }))
       );
 

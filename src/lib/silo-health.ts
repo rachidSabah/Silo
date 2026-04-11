@@ -1,6 +1,22 @@
 // Silo Health Scoring Engine
 // Evaluates each silo's structural integrity, internal linking, and completeness
 
+// Normalize keywords from DB — handles string[], comma-separated string, or null
+function normalizeKeywords(raw: string[] | string | null | undefined): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // Not JSON — treat as comma-separated
+    }
+    return raw.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 export interface SiloHealthResult {
   siloId: string;
   siloName: string;
@@ -35,19 +51,28 @@ export interface InternalLink {
 }
 
 export function calculateSiloHealth(
-  silo: { id: string; name: string; keywords: string[] },
+  silo: { id: string; name: string; keywords: string[] | string | null },
   pages: Array<{
     id: string;
     siloId: string | null;
     title: string;
     type: string;
-    keywords: string[];
-    metaDescription: string;
-    slug: string;
+    keywords: string[] | string | null;
+    metaDescription: string | null;
+    slug: string | null;
   }>,
   internalLinks?: InternalLink[]
 ): SiloHealthResult {
-  const siloPages = pages.filter(p => p.siloId === silo.id);
+  // Normalize keywords from DB (may be comma-separated string or null)
+  const siloKeywords = normalizeKeywords(silo.keywords);
+  const normalizedPages = pages.map(p => ({
+    ...p,
+    keywords: normalizeKeywords(p.keywords),
+    metaDescription: p.metaDescription ?? '',
+    slug: p.slug ?? '',
+    title: p.title ?? '',
+  }));
+  const siloPages = normalizedPages.filter(p => p.siloId === silo.id);
   const pillarPages = siloPages.filter(p => p.type === 'pillar');
   const clusterPages = siloPages.filter(p => p.type === 'cluster');
   const blogPages = siloPages.filter(p => p.type === 'blog');
@@ -114,7 +139,7 @@ export function calculateSiloHealth(
   // === Keyword Checks (25 points) ===
 
   // Silo has keywords (10 pts)
-  const hasKeywords = silo.keywords.length > 0;
+  const hasKeywords = siloKeywords.length > 0;
   if (hasKeywords) {
     score += 10;
   } else {
@@ -150,8 +175,8 @@ export function calculateSiloHealth(
   const bleedLinks: BleedLink[] = [];
   if (internalLinks && internalLinks.length > 0) {
     for (const link of internalLinks) {
-      const fromPage = pages.find(p => p.id === link.fromPageId);
-      const toPage = pages.find(p => p.id === link.toPageId);
+      const fromPage = normalizedPages.find(p => p.id === link.fromPageId);
+      const toPage = normalizedPages.find(p => p.id === link.toPageId);
       if (fromPage && toPage && fromPage.siloId === silo.id && toPage.siloId && toPage.siloId !== silo.id) {
         // Cross-silo link from this silo to another
         // It's a "bleed" if it's from a non-pillar page directly to another non-pillar page

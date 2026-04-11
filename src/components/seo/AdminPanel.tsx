@@ -171,7 +171,7 @@ export default function AdminPanel() {
       const res = await fetch('/api/auth/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ currentPassword, newPassword }),
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
       });
       const data = await res.json();
       if (!res.ok) {

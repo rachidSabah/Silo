@@ -37,9 +37,9 @@ async function handleRequest(req: NextRequest) {
 
   try {
     switch (true) {
-      // Projects
-      case path === '' && m === 'GET': return json(await getAllProjects());
-      case path === '' && m === 'POST': { const d = await body(req); await createProject(d); return json({ ok: true }); }
+      // Projects — both /api/ and /api/projects paths
+      case (path === '' || path === 'projects') && m === 'GET': return json(await getAllProjects());
+      case (path === '' || path === 'projects') && m === 'POST': { const d = await body(req); await createProject({ id: d.id || crypto.randomUUID(), name: d.name || '', domain: d.domain || '', language: d.language || 'en', niche: d.niche || '', seed_keywords: d.seed_keywords || (d.seedKeywords ? JSON.stringify(d.seedKeywords) : '') }); return json({ ok: true }); }
       case seg.length === 1 && isUUID(seg[0]) && m === 'GET': return json(await getProjectById(seg[0]));
       case seg.length === 1 && isUUID(seg[0]) && m === 'DELETE': await deleteProject(seg[0]); return json({ ok: true });
       // Projects/:id & gsc-metrics

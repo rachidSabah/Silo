@@ -28,17 +28,23 @@ export function calculateSEOScore(page: {
   type: string;
   status?: string;
 }): SEOScoreResult {
+  // Guard against null/undefined values that may come from DB
+  const title = page.title ?? '';
+  const slug = page.slug ?? '';
+  const metaDescription = page.metaDescription ?? '';
+  const keywords = Array.isArray(page.keywords) ? page.keywords : [];
+
   const checks = {
-    hasTitle: !!page.title && page.title.trim().length > 0,
-    hasSlug: !!page.slug && page.slug.trim().length > 0,
-    hasMetaDescription: !!page.metaDescription && page.metaDescription.trim().length > 0,
-    metaDescLength: page.metaDescription.length >= 120 && page.metaDescription.length <= 160,
-    hasKeywords: page.keywords.length > 0,
-    keywordCount: page.keywords.length >= 3 && page.keywords.length <= 7,
+    hasTitle: !!title && title.trim().length > 0,
+    hasSlug: !!slug && slug.trim().length > 0,
+    hasMetaDescription: !!metaDescription && metaDescription.trim().length > 0,
+    metaDescLength: metaDescription.length >= 120 && metaDescription.length <= 160,
+    hasKeywords: keywords.length > 0,
+    keywordCount: keywords.length >= 3 && keywords.length <= 7,
     hasSilo: !!page.siloId,
     hasType: !!page.type,
-    slugFormat: /^[a-z0-9]+(-[a-z0-9]+)*$/.test(page.slug),
-    titleLength: page.title.length > 0 && page.title.length <= 60,
+    slugFormat: /^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug),
+    titleLength: title.length > 0 && title.length <= 60,
   };
 
   // Weight each check
