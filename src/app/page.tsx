@@ -44,7 +44,38 @@ export default function Home() {
           // Token invalid, clear auth
         });
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Handle GSC OAuth callback — tokens are returned in URL hash
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hash = window.location.hash;
+    if (!hash || !hash.includes('gsc_access_token')) return;
+
+    const params = new URLSearchParams(hash.replace('#', ''));
+    const gscAccessToken = params.get('gsc_access_token');
+    const gscError = new URLSearchParams(window.location.search).get('gsc_error');
+
+    if (gscError) {
+      console.warn('[GSC-OAuth] Error from Google:', gscError);
+      // Clean up URL
+      window.history.replaceState({}, '', '/');
+      return;
+    }
+
+    if (gscAccessToken) {
+      // Store GSC token in sessionStorage for the GSC Analytics Dashboard to pick up
+      sessionStorage.setItem('gsc_access_token', gscAccessToken);
+      const refreshToken = params.get('gsc_refresh_token');
+      if (refreshToken) {
+        sessionStorage.setItem('gsc_refresh_token', refreshToken);
+      }
+      // Navigate to GSC Analytics dashboard (step 12)
+      useStore.getState().setStep(12);
+      // Clean up URL hash
+      window.history.replaceState({}, '', '/');
+    }
+  }, []);
 
   // Show login if not authenticated
   if (!user || !token) {

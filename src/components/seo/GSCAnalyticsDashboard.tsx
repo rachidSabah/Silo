@@ -20,6 +20,15 @@ export default function GSCAnalyticsDashboard() {
   const [sortField, setSortField] = useState<'clicks' | 'impressions' | 'position' | 'ctr'>('clicks');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
+  // Auto-detect GSC token from sessionStorage (set by OAuth callback)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storedToken = sessionStorage.getItem('gsc_access_token');
+    if (storedToken && !accessToken) {
+      setAccessToken(storedToken);
+    }
+  }, []);
+
   // Load GSC metrics from API
   const loadGSCMetrics = async () => {
     if (!project || !token) return;
