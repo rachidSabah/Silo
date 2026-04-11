@@ -116,6 +116,13 @@ export default function ArticleGenerator() {
             internalLinks: internalLinksList,
             brandVoice,
             niche: project.niche,
+            searchIntent: page.keywords?.[0]?.match(/^(how|what|why|when|where|guide|tutorial)/i) ? 'Informational'
+              : page.keywords?.[0]?.match(/^(best|top|review|compare|vs)/i) ? 'Commercial'
+              : page.keywords?.[0]?.match(/^(buy|price|cheap|discount|deal)/i) ? 'Transactional'
+              : 'Informational',
+            suggestedAnchor: pillarPage && page.id !== pillarPage.id
+              ? (pillarPage.keywords?.[0] || pillarPage.title)
+              : undefined,
           },
           wordCountTarget: page.type === 'pillar' ? 3000 : page.type === 'cluster' ? 2000 : 1500,
         }),

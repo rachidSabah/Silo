@@ -95,3 +95,32 @@ Stage Summary:
 - Bulk download combines all articles into one file
 - Step3 page structure can be downloaded as CSV
 - All exports include proper styling for offline reading
+---
+Task ID: 1
+Agent: Main Agent
+Task: Upgrade AI generation pipeline with SEO_MASTER_PROMPT and improved payload construction
+
+Work Log:
+- Read and analyzed the complete ai.ts (1135 lines), API route handler, ArticleGenerator.tsx, and globals.css
+- Created SEO_MASTER_PROMPT constant with HCU compliance, E-E-A-T, semantic density, strict silo/internal linking rules, and formatting rules
+- Added new SiloContext fields: searchIntent (optional) and suggestedAnchor (optional)
+- Rewrote generateSiloAwareArticle() with:
+  - Strict system/user message separation (SEO_MASTER_PROMPT as system, dynamic data as user)
+  - Page type → content strategy mapping (pillar/cluster/blog/category/landing)
+  - Safe defaults for all optional fields (keywords, searchIntent, brandVoice, niche)
+  - Anti-cannibalization context with explicit forbidden topics list
+  - Explicit internal link formatting instructions with exact HTML format
+  - Required pillar page link placement (within first 30% of article)
+  - Improved JSON parsing with double-fallback strategy
+- Updated bulkGenerateSiloArticles() to pass suggestedAnchor and searchIntent
+- Updated API route /api/ai/generate-article with safe SiloContext construction (null/empty fallbacks)
+- Updated API route /api/ai/bulk-generate with safe context construction
+- Updated ArticleGenerator.tsx client to pass searchIntent (auto-detected from keyword pattern) and suggestedAnchor
+- Increased Claude max_tokens from 4096 to 8192 for longer article generation
+- Verified: lint passes clean, no new TypeScript errors introduced, dev server running
+
+Stage Summary:
+- SEO_MASTER_PROMPT governs all AI article generation across all providers
+- Messages array strictly separates system prompt from user data
+- All optional data (siblingPages, suggestedAnchor, searchIntent) handled with safe fallbacks
+- Multi-provider logic (OpenAI/Gemini/Claude/DeepSeek) untouched — only messages array content changed

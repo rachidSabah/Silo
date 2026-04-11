@@ -73,7 +73,7 @@ async function callClaude(apiKey: string, model: string, messages: ChatMessage[]
     },
     body: JSON.stringify({
       model,
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: systemMsg,
       messages: chatMsgs,
     }),
@@ -843,6 +843,36 @@ export async function generateContentBrief(
 
 // ===== SILO-AWARE CONTENT GENERATION =====
 
+/**
+ * SEO_MASTER_PROMPT — The master system instruction governing the AI's behavior
+ * across ALL article generation. This ensures every article is written as if by
+ * an ultra-expert SEO architect who strictly adheres to silo architecture rules,
+ * HCU compliance, E-E-A-T principles, and semantic density requirements.
+ */
+export const SEO_MASTER_PROMPT = `You are a Principal SEO Architect, Semantic Entity Expert, and Top-Tier Direct-Response Copywriter. Your objective is to write the highest-ranking, most authoritative, and perfectly optimized article on the internet for the provided target keyword.
+
+### CORE SEO & CONTENT PHILOSOPHY (HCU COMPLIANT)
+1. Information Gain: Do not rehash the top 10 Google results. Introduce unique angles, proprietary data, expert interviews, and deep-dive insights that no competitor offers.
+2. E-E-A-T: Write with the commanding tone of an industry veteran with 15+ years of experience. Avoid robotic transitions like "In conclusion", "In today's digital age", "It goes without saying", or "As we all know". Write as if you are the definitive authority on this topic.
+3. Semantic Density: Naturally weave in semantic entities (named people, tools, frameworks, companies, standards), LSI keywords, and co-occurring terms that Google's NLP models expect to see in authoritative content on this topic.
+4. Search Intent: Immediately satisfy the user's search intent in the first 100 words. Do not bury the answer. Open with a direct, authoritative answer or value proposition that makes the reader stay.
+5. Content Depth: Every claim must be substantiated. Use statistics, case studies, expert quotes, or real-world examples. Generic advice like "be consistent" or "do your research" is FORBIDDEN — provide specific, actionable directives.
+
+### STRICT SILO & INTERNAL LINKING RULES
+1. No Cannibalization: Review the [Sibling Topics] provided below. You are strictly FORBIDDEN from writing deeply about these topics. Mention them only in passing with a contextual internal link. Your article must own its specific angle without encroaching on sibling territory.
+2. Pillar Page Support: If this is NOT the pillar page, you MUST include a contextual internal link to the [Pillar Page] within the first 30% of the article using the exact [Target Anchor Text] provided. This is non-negotiable.
+3. Formatting: Format all internal links in valid HTML: <a href="/target-slug">Exact Anchor Text Provided</a>. Use the exact slug and anchor text given — do not invent your own.
+4. No Bleeding: Do NOT link to any concepts outside of the provided Silo Context. Every internal link must point to a page within this silo. No external-site links in the body (except authoritative source citations).
+5. Link Distribution: Include 2-5 internal links per article. At least one must point to the pillar page (if this is not the pillar). Distribute remaining links to sibling cluster/blog pages where contextually natural.
+
+### FORMATTING RULES
+1. Use strict, well-structured HTML: <h2> for main concepts, <h3> for sub-points, <p> for paragraphs, <ul>/<ol> for lists, <strong> for emphasis, <table> for data comparisons.
+2. Every <h2> must be a keyword-optimized heading that serves as a standalone answer to a search query.
+3. Use bullet points and tables for scannability. Google loves listicles and comparison tables for featured snippets.
+4. Include a compelling, benefit-driven introduction that hooks the reader in the first sentence.
+5. End with a clear, specific Call-To-Action (CTA) that drives the next step in the user journey.
+6. Output ONLY the raw JSON object. No conversational filler, no markdown fences, no explanations.`;
+
 export interface SiloContext {
   siloName: string;
   pillarPage: { title: string; slug: string; keywords: string[] } | null;
@@ -850,6 +880,10 @@ export interface SiloContext {
   internalLinks: Array<{ anchor: string; targetTitle: string; targetSlug: string }>;
   brandVoice?: string;
   niche: string;
+  /** Search intent for the target keyword (informational, transactional, commercial, navigational) */
+  searchIntent?: string;
+  /** Suggested anchor text to use when linking back to the pillar page */
+  suggestedAnchor?: string;
 }
 
 export interface GeneratedArticleResult {
@@ -862,12 +896,18 @@ export interface GeneratedArticleResult {
 
 /**
  * Generate a silo-aware article for a single page.
+ *
  * This is the key differentiator: instead of just passing the target keyword,
  * we pass the ENTIRE silo context so the AI knows:
  * - What the pillar page covers (to link up to it)
  * - What sibling pages cover (to avoid duplication/cannibalization)
  * - Specific anchor texts to use for internal links
  * - Brand voice consistency requirements
+ * - Search intent to satisfy immediately
+ *
+ * The messages array strictly separates the SEO_MASTER_PROMPT (system) from
+ * the dynamic user payload, ensuring the system instruction governs behavior
+ * regardless of which AI provider (OpenAI/Gemini/Claude/DeepSeek) is used.
  */
 export async function generateSiloAwareArticle(
   pageTitle: string,
@@ -877,67 +917,106 @@ export async function generateSiloAwareArticle(
   wordCountTarget: number,
   req?: NextRequest
 ): Promise<GeneratedArticleResult | null> {
-  const { siloName, pillarPage, siblingPages, internalLinks, brandVoice, niche } = siloContext;
+  const {
+    siloName,
+    pillarPage,
+    siblingPages,
+    internalLinks,
+    brandVoice,
+    niche,
+    searchIntent,
+    suggestedAnchor,
+  } = siloContext;
 
-  // Build the context-aware prompt
-  const siblingContext = siblingPages
+  // Safe defaults for optional fields — prevents prompt breakage
+  const safeKeywords = Array.isArray(pageKeywords) && pageKeywords.length > 0
+    ? pageKeywords
+    : [pageTitle];
+  const safeSearchIntent = searchIntent || 'Informational';
+  const safeBrandVoice = brandVoice || 'Professional and authoritative';
+  const safeNiche = niche || 'the target industry';
+
+  // Page type → content strategy mapping
+  const pageTypeInstructions: Record<string, string> = {
+    pillar: `This is a PILLAR PAGE — the authoritative hub for the entire "${siloName}" silo. Write a comprehensive, encyclopedic guide (minimum ${wordCountTarget} words) that covers the topic breadth-first. It should be the definitive resource that all other pages in this silo link back to. Structure with 6-10 H2 sections covering every major facet.`,
+    cluster: `This is a CLUSTER PAGE — a focused deep-dive into one specific subtopic of the pillar. Write an in-depth, expert-level analysis (minimum ${wordCountTarget} words) that goes deeper than any competitor. Link UP to the pillar page within the first 30% of the article using the exact anchor text provided.`,
+    blog: `This is a BLOG POST — an engaging, timely article targeting a long-tail query. Write a compelling, action-oriented post (minimum ${wordCountTarget} words) that answers the search intent immediately. Use a slightly more conversational tone while maintaining authority. Link UP to the pillar page and relevant cluster pages.`,
+    category: `This is a CATEGORY PAGE — a topical overview that groups related content. Write a structured overview (minimum ${wordCountTarget} words) with clear sections and links to all child pages. Prioritize navigation and discoverability.`,
+    landing: `This is a LANDING PAGE — a conversion-focused page. Write persuasive, benefit-driven copy (minimum ${wordCountTarget} words) with clear CTAs, social proof, and urgency. Every section should drive toward the conversion goal.`,
+  };
+
+  // Build anti-cannibalization context from sibling pages
+  const siblingEntries = siblingPages
     .filter(p => p.title !== pageTitle)
-    .map(p => `  - "${p.title}" (${p.type}): covers ${p.keywords.slice(0, 3).join(', ')}`)
+    .map(p => `  - "${p.title}" (${p.type}): covers ${p.keywords?.slice(0, 3).join(', ') || p.title}`)
     .join('\n');
 
-  const linkContext = internalLinks
-    .map(l => `  - Use anchor "${l.anchor}" to link to "${l.targetTitle}" (/${l.targetSlug})`)
+  // Build strategic internal link instructions
+  const linkInstructions = internalLinks
+    .map(l => `  - Anchor: "${l.anchor}" → Target: "${l.targetTitle}" (/${l.targetSlug})`)
     .join('\n');
 
-  const avoidTopics = siblingPages
+  // Build the topics-to-avoid list (anti-cannibalization)
+  const avoidTopicsList = siblingPages
     .filter(p => p.title !== pageTitle)
-    .map(p => p.keywords.slice(0, 2).join(', '))
+    .map(p => p.keywords?.slice(0, 2).join(', ') || p.title)
+    .filter(Boolean)
     .join('; ');
 
-  const systemPrompt = `You are an expert SEO content writer who writes silo-aware articles. Your writing must be tightly integrated with the site's silo architecture to avoid keyword cannibalization and maximize internal link equity flow.
+  // Determine the required pillar link anchor text
+  const pillarAnchorText = suggestedAnchor
+    || (pillarPage ? pillarPage.keywords?.[0] || pillarPage.title : null);
+  const pillarSlug = pillarPage?.slug || '';
 
-CRITICAL RULES:
-1. Write about ${pageTitle}'s specific topic ONLY. Do NOT cover sub-topics that belong to sibling articles (listed below) — this prevents keyword cannibalization.
-2. Always include internal links using the EXACT anchor texts provided below. These are strategic links that push authority up to the pillar page and across to sibling pages.
-3. If this is a pillar page, write a comprehensive guide. If a cluster page, write a focused deep-dive. If a blog post, write an engaging article.
-4. The content must be ${wordCountTarget} words minimum.
-5. Use proper HTML formatting: <h2>, <h3>, <p>, <ul>, <li>, <strong>, <a href="/slug">anchor</a> tags.
-6. Include a compelling introduction and a clear CTA at the end.
-7. ${brandVoice ? `Brand voice: ${brandVoice}.` : 'Use a professional yet approachable tone.'}
-8. Optimize for the target keywords naturally — don't stuff them.
-9. Return ONLY a JSON object with: "title" (H1), "content" (HTML string), "wordCount" (approximate), "internalLinks" (array of {anchor, targetSlug} for links you included), "metaDescription" (150-160 chars). No other text.`;
+  // Construct the dynamic user payload — all variable data goes here
+  const userPayload = `Execute the article based on these exact parameters:
 
-  const userPrompt = `Write a ${pageType} page article for the silo "${siloName}" in the niche "${niche}".
-
-PAGE DETAILS:
-- Title: ${pageTitle}
-- Type: ${pageType}
-- Target Keywords: ${pageKeywords.join(', ')}
+- Target Keyword: ${safeKeywords[0]}
+- Secondary Keywords: ${safeKeywords.slice(1).join(', ') || 'N/A'}
+- Search Intent: ${safeSearchIntent}
+- Page Type: ${pageType}
+- Brand Voice: ${safeBrandVoice}
 - Word Count Target: ${wordCountTarget} words
+- Niche: ${safeNiche}
 
-SILO CONTEXT:
-${pillarPage ? `- Pillar Page: "${pillarPage.title}" (/${pillarPage.slug}) — keywords: ${pillarPage.keywords.join(', ')}
-  → Link UP to this pillar page using relevant anchor text` : '- This IS the pillar page — it should be the authoritative hub for this silo'}
+--- PAGE TYPE INSTRUCTION ---
+${pageTypeInstructions[pageType] || pageTypeInstructions.blog}
 
-SIBLING PAGES (DO NOT duplicate their topics):
-${siblingContext || '- None'}
+--- SILO CONTEXT ---
+- Silo Name: "${siloName}"
+${pillarPage
+    ? `- Parent Pillar Page: "${pillarPage.title}" (/${pillarSlug})
+- REQUIRED INTERNAL LINK: You MUST link to the Parent Pillar Page using this exact anchor text: "${pillarAnchorText}"
+  Format: <a href="/${pillarSlug}">${pillarAnchorText}</a>
+  Placement: Within the first 30% of the article.`
+    : '- This IS the Pillar Page. It should be the authoritative hub that all other silo pages link back to.'}
 
-TOPICS TO AVOID (covered by siblings): ${avoidTopics || 'None'}
+--- ANTI-CANNIBALIZATION RULES ---
+Do NOT cover these topics deeply, as they are covered by sibling pages in this silo:
+${siblingEntries || '- No sibling pages (standalone article)'}
+Topics strictly off-limits for deep coverage: ${avoidTopicsList || 'None'}
 
-INTERNAL LINKS TO INCLUDE:
-${linkContext || '- Include at least 2-3 links to other pages in this silo'}
+--- INTERNAL LINKS TO INCLUDE ---
+${linkInstructions || '- Include at least 2-3 contextual internal links to other pages in this silo where naturally relevant'}
 
-Write the full article now. Return ONLY the JSON object.`;
+--- CONTENT REQUIREMENTS ---
+1. Immediately satisfy search intent in the first 100 words.
+2. Every H2 heading must target a specific search query or sub-intent.
+3. Include semantic entities, LSI terms, and co-occurring vocabulary naturally.
+4. Substantiate claims with specific data, examples, or expert references.
+5. End with a clear, specific Call-To-Action.
+6. Return ONLY a JSON object: {"title": "...", "content": "...(HTML)...", "wordCount": N, "internalLinks": [{"anchor": "...", "targetSlug": "..."}], "metaDescription": "..."}`
 
   const content = await callAI([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt },
+    { role: 'system', content: SEO_MASTER_PROMPT },
+    { role: 'user', content: userPayload },
   ], req);
 
   // Extract article from AI response, handling wrapped formats like {article: {...}}
   try {
-    const cleaned = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const cleaned = cleanAIResponse(content);
     const parsed = JSON.parse(cleaned);
+
     // If AI wrapped it in {article: {...}}, extract inner
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       for (const key of ['article', 'data', 'result']) {
@@ -952,6 +1031,18 @@ Write the full article now. Return ONLY the JSON object.`;
     }
     return null;
   } catch {
+    // Try one more aggressive parse — sometimes the AI returns HTML with surrounding text
+    try {
+      const firstBrace = content.indexOf('{');
+      const lastBrace = content.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        const candidate = content.slice(firstBrace, lastBrace + 1);
+        const parsed = JSON.parse(candidate);
+        if (parsed.content && typeof parsed.content === 'string') {
+          return parsed as GeneratedArticleResult;
+        }
+      }
+    } catch {}
     return null;
   }
 }
@@ -1012,6 +1103,11 @@ export async function bulkGenerateSiloArticles(
       });
     }
 
+    // Determine suggested anchor text for pillar link
+    const suggestedAnchor = (pillarPage && page.id !== pillarPage.id)
+      ? (pillarPage.keywords?.[0] || pillarPage.title)
+      : undefined;
+
     const siloContext: SiloContext = {
       siloName,
       pillarPage: pillarPage ? { title: pillarPage.title, slug: pillarPage.slug, keywords: pillarPage.keywords } : null,
@@ -1019,6 +1115,8 @@ export async function bulkGenerateSiloArticles(
       internalLinks,
       brandVoice,
       niche,
+      searchIntent: 'Informational',
+      suggestedAnchor,
     };
 
     const article = await generateSiloAwareArticle(
