@@ -124,6 +124,11 @@ interface AppState {
   internalLinks: InternalLink[];
   savedProjectId: string | null;
 
+  // Auto-save tracking
+  isDirty: boolean;
+  lastSavedAt: number | null;
+  isSaving: boolean;
+
   // AI results cache
   keywordClusters: KeywordCluster[];
   contentGaps: ContentGap[];
@@ -190,6 +195,11 @@ interface AppState {
   // Project ID
   setSavedProjectId: (id: string | null) => void;
 
+  // Auto-save actions
+  markDirty: () => void;
+  markSaved: () => void;
+  setIsSaving: (saving: boolean) => void;
+
   // Auth actions
   setUser: (user: AuthUser | null) => void;
   setToken: (token: string | null) => void;
@@ -206,6 +216,9 @@ const initialState = {
   pages: [],
   internalLinks: [],
   savedProjectId: null,
+  isDirty: false,
+  lastSavedAt: null,
+  isSaving: false,
   keywordClusters: [],
   contentGaps: [],
   contentBrief: null,
@@ -226,34 +239,39 @@ export const useStore = create<AppState>()(
 
       setStep: (step) => set({ currentStep: step }),
 
-      setProject: (project) => set({ project }),
+      setProject: (project) => set({ project, isDirty: true }),
 
-      setSilos: (silos) => set({ silos }),
-      addSilo: (silo) => set((state) => ({ silos: [...state.silos, silo] })),
+      setSilos: (silos) => set({ silos, isDirty: true }),
+      addSilo: (silo) => set((state) => ({ silos: [...state.silos, silo], isDirty: true })),
       removeSilo: (id) => set((state) => ({
         silos: state.silos.filter((s) => s.id !== id),
         pages: state.pages.map((p) => p.siloId === id ? { ...p, siloId: null } : p),
+        isDirty: true,
       })),
       updateSilo: (id, data) => set((state) => ({
         silos: state.silos.map((s) => (s.id === id ? { ...s, ...data } : s)),
+        isDirty: true,
       })),
 
-      setPages: (pages) => set({ pages }),
-      addPage: (page) => set((state) => ({ pages: [...state.pages, page] })),
-      addPages: (pages) => set((state) => ({ pages: [...state.pages, ...pages] })),
+      setPages: (pages) => set({ pages, isDirty: true }),
+      addPage: (page) => set((state) => ({ pages: [...state.pages, page], isDirty: true })),
+      addPages: (pages) => set((state) => ({ pages: [...state.pages, ...pages], isDirty: true })),
       removePage: (id) => set((state) => ({
         pages: state.pages.filter((p) => p.id !== id),
         internalLinks: state.internalLinks.filter((l) => l.fromPageId !== id && l.toPageId !== id),
+        isDirty: true,
       })),
       updatePage: (id, data) => set((state) => ({
         pages: state.pages.map((p) => (p.id === id ? { ...p, ...data } : p)),
+        isDirty: true,
       })),
 
-      setInternalLinks: (internalLinks) => set({ internalLinks }),
-      addInternalLink: (link) => set((state) => ({ internalLinks: [...state.internalLinks, link] })),
-      addInternalLinks: (links) => set((state) => ({ internalLinks: [...state.internalLinks, ...links] })),
+      setInternalLinks: (internalLinks) => set({ internalLinks, isDirty: true }),
+      addInternalLink: (link) => set((state) => ({ internalLinks: [...state.internalLinks, link], isDirty: true })),
+      addInternalLinks: (links) => set((state) => ({ internalLinks: [...state.internalLinks, ...links], isDirty: true })),
       removeInternalLink: (id) => set((state) => ({
         internalLinks: state.internalLinks.filter((l) => l.id !== id),
+        isDirty: true,
       })),
 
       setKeywordClusters: (keywordClusters) => set({ keywordClusters }),
@@ -278,6 +296,11 @@ export const useStore = create<AppState>()(
 
       setSavedProjectId: (id) => set({ savedProjectId: id }),
 
+      // Auto-save tracking
+      markDirty: () => set({ isDirty: true }),
+      markSaved: () => set({ isDirty: false, lastSavedAt: Date.now() }),
+      setIsSaving: (isSaving) => set({ isSaving }),
+
       setUser: (user) => set({ user }),
       setToken: (token) => set({ token }),
       logout: () => set({ ...initialState }),
@@ -288,6 +311,7 @@ export const useStore = create<AppState>()(
         keywordClusters: [], contentGaps: [], contentBrief: null,
         generatedArticles: [], bulkGeneratingProgress: null, cmsConfigs: [],
         gscSiloMetrics: [], gscSyncResult: null, gscSyncLoading: false,
+        isDirty: false, lastSavedAt: null, isSaving: false,
       }),
     }),
     {

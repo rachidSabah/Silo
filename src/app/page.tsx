@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
+import { useAutoSave } from '@/lib/useAutoSave';
 import LoginPage from '@/components/seo/LoginPage';
 import Sidebar from '@/components/seo/Sidebar';
 import DashboardAnalytics from '@/components/seo/DashboardAnalytics';
@@ -126,6 +127,16 @@ export default function Home() {
   if (!user || !token) {
     return <LoginPage />;
   }
+
+  // Activate auto-save hook (only when authenticated)
+  return <AuthenticatedApp />;
+}
+
+function AuthenticatedApp() {
+  const { currentStep } = useStore();
+
+  // Activate auto-save (3-second debounce when dirty)
+  useAutoSave();
 
   const renderStep = () => {
     switch (currentStep) {

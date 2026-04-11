@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 import { useStore } from '@/store/useStore';
+import { useAutoSave } from '@/lib/useAutoSave';
 import {
   Check, Zap, Menu, X, Shield, Key, LogOut, User,
   BarChart3, Calendar, FileText, Network, Link2, Brain, PenTool,
-  Globe, TrendingUp, FileDown,
+  Globe, TrendingUp, FileDown, Save, Loader2, Cloud, CloudOff,
 } from 'lucide-react';
 
 const workflowSteps = [
@@ -30,7 +31,8 @@ const toolSteps = [
 ];
 
 export default function Sidebar() {
-  const { currentStep, setStep, project, silos, pages, user, logout } = useStore();
+  const { currentStep, setStep, project, silos, pages, user, logout, isDirty, isSaving, lastSavedAt } = useStore();
+  const { saveProject } = useAutoSave();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
@@ -89,11 +91,54 @@ export default function Sidebar() {
           <div className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/20">
             <Zap size={20} className="text-white" />
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <h1 className="text-lg md:text-xl font-bold text-white tracking-tight">SiloForge</h1>
             <p className="text-[10px] md:text-[11px] text-slate-500">SEO Architecture Builder</p>
           </div>
         </div>
+
+        {/* Save status + button */}
+        {project && (
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={() => saveProject()}
+              disabled={isSaving || !isDirty}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                isSaving
+                  ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                  : isDirty
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30'
+                  : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+              }`}
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  Saving...
+                </>
+              ) : isDirty ? (
+                <>
+                  <CloudOff size={12} />
+                  Unsaved changes
+                </>
+              ) : (
+                <>
+                  <Cloud size={12} />
+                  Saved
+                </>
+              )}
+            </button>
+            {isDirty && !isSaving && (
+              <button
+                onClick={() => saveProject()}
+                className="p-1.5 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-lg hover:bg-blue-500/30 transition-colors"
+                title="Save now"
+              >
+                <Save size={12} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Step Navigation */}
