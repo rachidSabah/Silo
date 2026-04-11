@@ -79,7 +79,7 @@ async function handleRequest(req: NextRequest) {
       case path === 'settings' && m === 'DELETE': { const d = await body(req); await deleteAISetting(d.id || url.searchParams.get('id') || ''); return json({ ok: true }); }
       // AI
       case path === 'ai/expand-keywords' && m === 'POST': { const d = await body(req); const result = await expandKeywords(d.seedKeywords || d.keywords, d.niche, d.language, req); return json({ keywords: result }); }
-      case path === 'ai/generate-silos' && m === 'POST': { const d = await body(req); return json(await generateSilos(d.niche, d.keywords, d.language, req)); }
+      case path === 'ai/generate-silos' && m === 'POST': { const d = await body(req); const silos = await generateSilos(d.niche, d.keywords, d.language, req); return json({ silos }); }
       case path === 'ai/generate-pages' && m === 'POST': { const d = await body(req); return json(await generatePages(d.silos, d.niche, d.language, req)); }
       case path === 'ai/keyword-cluster' && m === 'POST': { const d = await body(req); return json(await groupKeywords(d.keywords, d.niche, req)); }
       case path === 'ai/search-intent' && m === 'POST': { const d = await body(req); return json(await mapSearchIntent(d.keywords, req)); }

@@ -134,7 +134,29 @@ export async function callAI(messages: ChatMessage[], req?: NextRequest): Promis
 function parseJSON<T>(text: string, fallback: T): T {
   try {
     const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    return JSON.parse(cleaned);
+    const parsed = JSON.parse(cleaned);
+    return parsed;
+  } catch {
+    return fallback;
+  }
+}
+
+// Extract an array from AI response, handling both raw array and wrapped object formats
+function extractArray<T>(text: string, arrayKey: string, fallback: T[]): T[] {
+  try {
+    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+    // If it's already an array, return it
+    if (Array.isArray(parsed)) return parsed;
+    // If it's an object with the key, extract it
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed[arrayKey])) return parsed[arrayKey];
+    // If it's an object with any array property, try the first one
+    if (parsed && typeof parsed === 'object') {
+      for (const val of Object.values(parsed)) {
+        if (Array.isArray(val)) return val as T[];
+      }
+    }
+    return fallback;
   } catch {
     return fallback;
   }
@@ -146,7 +168,7 @@ export async function expandKeywords(seedKeywords: string[], niche: string, lang
     { role: 'system', content: `You are an SEO keyword research expert. Given seed keywords, expand them into a comprehensive list of related keywords and long-tail variations. Return ONLY a JSON array of strings, no other text. Language: ${language}.` },
     { role: 'user', content: `Expand these seed keywords for the niche "${niche}": ${safeKeywords.join(', ')}. Return 30-50 related keywords as a JSON array.` },
   ], req);
-  return parseJSON(content, safeKeywords);
+  return extractArray<string>(content, 'keywords', safeKeywords);
 }
 
 export async function generateSilos(niche: string, keywords: string[], language: string, req?: NextRequest): Promise<{ name: string; keywords: string[] }[]> {
@@ -155,7 +177,7 @@ export async function generateSilos(niche: string, keywords: string[], language:
     { role: 'system', content: `You are an SEO architect specializing in website silo structure. Given a niche and keywords, suggest optimal content silo categories. Each silo should group related topics together. Return ONLY a JSON array of objects with "name" (silo name) and "keywords" (array of keywords for that silo). No other text. Language: ${language}.` },
     { role: 'user', content: `Generate 4-8 silo categories for the niche "${niche}" with these keywords: ${safeKeywords.join(', ')}. Return as JSON array.` },
   ], req);
-  return parseJSON(content, [{ name: niche, keywords: safeKeywords }]);
+  return extractArray<{ name: string; keywords: string[] }>(content, 'silos', [{ name: niche, keywords: safeKeywords }]);
 }
 
 export async function generatePages(
@@ -190,7 +212,7 @@ export async function suggestInternalLinks(
 Return ONLY a JSON array of link objects with "from" (page id), "to" (page id), and "anchor" (link anchor text). No other text.` },
     { role: 'user', content: `Suggest internal links for these pages:\n${JSON.stringify(pages.slice(0, 50))}\nSilos: ${JSON.stringify(silos)}` },
   ], req);
-  return parseJSON(content, []);
+  return extractArray<{ from: string; to: string; anchor: string }>(content, 'links', []);
 }
 
 // ===== NEW AI FUNCTIONS =====
@@ -212,7 +234,7 @@ export async function groupKeywords(
     { role: 'system', content: `You are an SEO keyword clustering expert. Given a list of keywords, group them into logical clusters based on SERP similarity and topical relevance. For each cluster, determine the primary search intent (informational, navigational, transactional, or commercial). Return ONLY a JSON array of objects with "name" (cluster name), "keywords" (array of grouped keywords), "intent" (one of: informational, navigational, transactional, commercial). No other text.` },
     { role: 'user', content: `Group these keywords for the niche "${niche}" into clusters:\n${keywords.join('\n')}` },
   ], req);
-  return parseJSON(content, [{ name: niche, keywords, intent: 'informational' }]);
+  return extractArray<KeywordCluster>(content, 'clusters', [{ name: niche, keywords, intent: 'informational' }]);
 }
 
 export async function mapSearchIntent(
@@ -223,7 +245,7 @@ export async function mapSearchIntent(
     { role: 'system', content: `You are an SEO search intent expert. For each keyword, determine the primary search intent and funnel stage. Return ONLY a JSON array of objects with "keyword", "intent" (one of: informational, navigational, transactional, commercial), and "funnelStage" (one of: awareness, consideration, decision, retention). No other text.` },
     { role: 'user', content: `Map search intent for these keywords:\n${keywords.join('\n')}` },
   ], req);
-  return parseJSON(content, keywords.map(k => ({ keyword: k, intent: 'informational' as const, funnelStage: 'awareness' })));
+  return extractArray<{ keyword: string; intent: 'informational' | 'navigational' | 'transactional' | 'commercial'; funnelStage: string }>(content, 'intents', keywords.map(k => ({ keyword: k, intent: 'informational' as const, funnelStage: 'awareness' })));
 }
 
 export async function analyzeContentGap(

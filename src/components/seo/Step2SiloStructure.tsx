@@ -49,10 +49,20 @@ export default function Step2SiloStructure() {
           id: uuidv4(),
           projectId: project.id,
           name: s.name,
-          keywords: s.keywords || [],
+          keywords: Array.isArray(s.keywords) ? s.keywords : [],
         }));
         setSilos(newSilos);
         // Auto-expand first silo
+        if (newSilos.length > 0) setExpandedSilo(newSilos[0].id);
+      } else if (Array.isArray(data) && data.length > 0 && data[0].name) {
+        // Handle case where API returns raw array
+        const newSilos = data.map((s: { name: string; keywords?: string[] }) => ({
+          id: uuidv4(),
+          projectId: project.id,
+          name: s.name,
+          keywords: Array.isArray(s.keywords) ? s.keywords : [],
+        }));
+        setSilos(newSilos);
         if (newSilos.length > 0) setExpandedSilo(newSilos[0].id);
       } else {
         setError('AI returned unexpected format. Please try again.');
