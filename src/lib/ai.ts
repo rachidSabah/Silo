@@ -137,7 +137,7 @@ export async function callAI(messages: ChatMessage[], req?: NextRequest): Promis
 
 function parseJSON<T>(text: string, fallback: T): T {
   try {
-    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const cleaned = cleanAIResponse(text);
     const parsed = JSON.parse(cleaned);
     return parsed;
   } catch {
@@ -145,10 +145,70 @@ function parseJSON<T>(text: string, fallback: T): T {
   }
 }
 
+// Robustly extract JSON from AI text that may contain extra commentary
+function cleanAIResponse(text: string): string {
+  // First try: strip markdown code fences
+  let cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+  // Try direct parse
+  try { JSON.parse(cleaned); return cleaned; } catch {}
+
+  // Second try: find the first '{' and last '}' for object, or '[' and ']' for array
+  // This handles cases where AI adds text before/after JSON
+  const firstBrace = cleaned.indexOf('{');
+  const firstBracket = cleaned.indexOf('[');
+
+  if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+    // Try to extract JSON object
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    for (let i = firstBrace; i < cleaned.length; i++) {
+      const ch = cleaned[i];
+      if (escape) { escape = false; continue; }
+      if (ch === '\\') { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === '{') depth++;
+      if (ch === '}') depth--;
+      if (depth === 0) {
+        const candidate = cleaned.slice(firstBrace, i + 1);
+        try { JSON.parse(candidate); return candidate; } catch { break; }
+      }
+    }
+  }
+
+  if (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace)) {
+    // Try to extract JSON array
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    for (let i = firstBracket; i < cleaned.length; i++) {
+      const ch = cleaned[i];
+      if (escape) { escape = false; continue; }
+      if (ch === '\\') { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === '[') depth++;
+      if (ch === ']') depth--;
+      if (depth === 0) {
+        const candidate = cleaned.slice(firstBracket, i + 1);
+        try { JSON.parse(candidate); return candidate; } catch { break; }
+      }
+    }
+  }
+
+  // Last resort: remove common AI preamble patterns
+  cleaned = cleaned.replace(/^(Here\s+(is|are)|Below\s+(is|are)|Sure[!,]?|I'll|I\s+will|Certainly[!,]?|Of\s+course[!,]?)\s[\s\S]*?(?=\{)/i, '{');
+  cleaned = cleaned.replace(/\}[\s\S]*$/, '}');
+
+  return cleaned;
+}
+
 // Extract an array from AI response, handling both raw array and wrapped object formats
 function extractArray<T>(text: string, arrayKey: string, fallback: T[]): T[] {
   try {
-    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const cleaned = cleanAIResponse(text);
     const parsed = JSON.parse(cleaned);
     // If it's already an array, return it
     if (Array.isArray(parsed)) return parsed;
@@ -168,55 +228,202 @@ function extractArray<T>(text: string, arrayKey: string, fallback: T[]): T[] {
 
 // Extract a Record<string, array> from AI response for page generation
 // Handles: {siloName: [...]} directly, or {pagesBySilo: {...}}, {pages: {...}}, etc.
+// Also handles nested structures like {siloName: {pillar: {...}, clusters: [...], blogs: [...]}}
 function extractPagesBySilo(
   text: string,
   silos: { name: string; keywords: string[] }[]
 ): Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> {
   try {
-    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const parsed = JSON.parse(cleaned);
+    const cleaned = cleanAIResponse(text);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (e) {
+      console.error('[extractPagesBySilo] JSON parse failed:', e instanceof Error ? e.message : e, 'Text preview:', cleaned.slice(0, 300));
+      return {};
+    }
 
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    if (!parsed || typeof parsed !== 'object') return {};
+
+    // If it's an array, we can't directly map it to silos - return empty (handled by caller fallback)
+    if (Array.isArray(parsed)) return {};
 
     // Check common wrapper keys first
     for (const key of ['pagesBySilo', 'pages', 'silos', 'data', 'result']) {
-      if (parsed[key] && typeof parsed[key] === 'object' && !Array.isArray(parsed[key])) {
-        const inner = parsed[key] as Record<string, unknown>;
-        // Verify it looks like {siloName: [...]}
-        const hasValidEntries = Object.values(inner).some(v => Array.isArray(v));
-        if (hasValidEntries) return inner as Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]>;
+      if ((parsed as Record<string, unknown>)[key] && typeof (parsed as Record<string, unknown>)[key] === 'object' && !Array.isArray((parsed as Record<string, unknown>)[key])) {
+        const inner = (parsed as Record<string, unknown>)[key] as Record<string, unknown>;
+        const flattened = flattenSiloEntries(inner, silos);
+        if (Object.keys(flattened).length > 0) return flattened;
       }
     }
 
     // Check if parsed itself is {siloName: [...]} directly
     const siloNames = new Set(silos.map(s => s.name));
-    const entries = Object.entries(parsed);
+    const entries = Object.entries(parsed as Record<string, unknown>);
     const matchingEntries = entries.filter(([key, val]) =>
-      (siloNames.has(key) || (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object' && val[0] !== null && 'title' in (val[0] as Record<string, unknown>)))
+      siloNames.has(key) ||
+      (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object' && val[0] !== null && 'title' in (val[0] as Record<string, unknown>)) ||
+      (typeof val === 'object' && val !== null && !Array.isArray(val))
     );
     if (matchingEntries.length > 0) {
-      const result: Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> = {};
-      for (const [key, val] of matchingEntries) {
-        if (Array.isArray(val)) {
-          result[key] = val as { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[];
-        }
-      }
-      if (Object.keys(result).length > 0) return result;
+      const flattened = flattenSiloEntries(Object.fromEntries(matchingEntries), silos);
+      if (Object.keys(flattened).length > 0) return flattened;
     }
 
     // Last resort: find any property whose value is an object with array values
     for (const [key, val] of entries) {
       if (val && typeof val === 'object' && !Array.isArray(val)) {
         const inner = val as Record<string, unknown>;
-        const hasValidArrays = Object.values(inner).some(v => Array.isArray(v));
-        if (hasValidArrays) return inner as Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]>;
+        const hasValidContent = Object.values(inner).some(v => Array.isArray(v) || (typeof v === 'object' && v !== null && !Array.isArray(v)));
+        if (hasValidContent) {
+          const flattened = flattenSiloEntries(inner, silos);
+          if (Object.keys(flattened).length > 0) return flattened;
+        }
       }
     }
 
+    // Ultra-last resort: scan ALL keys recursively for any array containing objects with 'title'
+    const deepPages = deepExtractPages(parsed as Record<string, unknown>, silos);
+    if (Object.keys(deepPages).length > 0) return deepPages;
+
+    console.error('[extractPagesBySilo] No valid page data found in parsed object. Keys:', Object.keys(parsed as Record<string, unknown>));
     return {};
-  } catch {
+  } catch (e) {
+    console.error('[extractPagesBySilo] Unexpected error:', e instanceof Error ? e.message : e);
     return {};
   }
+}
+
+// Deep recursive extraction: find any arrays containing objects with 'title' field anywhere in the structure
+function deepExtractPages(
+  obj: Record<string, unknown>,
+  silos: { name: string; keywords: string[] }[]
+): Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> {
+  const result: Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> = {};
+  const siloNames = new Set(silos.map(s => s.name));
+
+  function scan(current: unknown, parentKey: string, depth: number): void {
+    if (depth > 5) return; // Prevent infinite recursion
+    if (!current || typeof current !== 'object') return;
+
+    if (Array.isArray(current)) {
+      // Check if this array contains page-like objects
+      if (current.length > 0 && current[0] && typeof current[0] === 'object' && 'title' in (current[0] as Record<string, unknown>)) {
+        // Determine which silo this belongs to
+        const siloKey = parentKey || silos[0]?.name || 'Default';
+        if (!result[siloKey]) result[siloKey] = [];
+        for (const item of current) {
+          if (item && typeof item === 'object' && 'title' in (item as Record<string, unknown>)) {
+            const page = item as Record<string, unknown>;
+            result[siloKey].push({
+              title: (page.title as string) || '',
+              slug: (page.slug as string) || ((page.title as string) || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+              meta_description: (page.meta_description as string) || (page.metaDescription as string) || '',
+              keywords: Array.isArray(page.keywords) ? page.keywords as string[] : [],
+              type: inferPageType(parentKey, page.type as string),
+            });
+          }
+        }
+      }
+      return;
+    }
+
+    // It's a plain object - recurse into its values
+    for (const [key, val] of Object.entries(current as Record<string, unknown>)) {
+      if (val && typeof val === 'object') {
+        scan(val, key, depth + 1);
+      }
+    }
+  }
+
+  scan(obj, '', 0);
+
+  // Try to match result keys to actual silo names
+  const mapped: Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> = {};
+  for (const [key, pages] of Object.entries(result)) {
+    if (siloNames.has(key) || pages.length > 0) {
+      mapped[key] = pages;
+    }
+  }
+
+  return mapped;
+}
+
+// Flatten nested silo structures like {pillar: {...}, clusters: [...], blogs: [...]} into a flat array
+function flattenSiloEntries(
+  obj: Record<string, unknown>,
+  silos: { name: string; keywords: string[] }[]
+): Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> {
+  const result: Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> = {};
+  const siloNames = new Set(silos.map(s => s.name));
+
+  for (const [siloKey, siloVal] of Object.entries(obj)) {
+    // Skip known non-data keys
+    if (['pagesBySilo', 'pages', 'silos', 'data', 'result', 'error', 'ok'].includes(siloKey)) continue;
+
+    // If it's already a flat array of page objects
+    if (Array.isArray(siloVal) && siloVal.length > 0) {
+      if (siloVal[0] && typeof siloVal[0] === 'object' && siloVal[0] !== null && 'title' in (siloVal[0] as Record<string, unknown>)) {
+        result[siloKey] = siloVal as { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[];
+        continue;
+      }
+    }
+
+    // If it's a nested object like {pillar: {...}, clusters: [...], blogs: [...]}
+    if (siloVal && typeof siloVal === 'object' && !Array.isArray(siloVal)) {
+      const nested = siloVal as Record<string, unknown>;
+      const pages: { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[] = [];
+
+      for (const [subKey, subVal] of Object.entries(nested)) {
+        // Handle single pillar object: {pillar: {title, slug, ...}}
+        if (subVal && typeof subVal === 'object' && !Array.isArray(subVal) && 'title' in (subVal as Record<string, unknown>)) {
+          const page = subVal as Record<string, unknown>;
+          pages.push({
+            title: (page.title as string) || '',
+            slug: (page.slug as string) || ((page.title as string) || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+            meta_description: (page.meta_description as string) || (page.metaDescription as string) || '',
+            keywords: Array.isArray(page.keywords) ? page.keywords as string[] : [],
+            type: inferPageType(subKey, page.type as string),
+          });
+        }
+        // Handle arrays: {clusters: [{title, ...}, ...]}
+        if (Array.isArray(subVal)) {
+          for (const item of subVal) {
+            if (item && typeof item === 'object' && 'title' in (item as Record<string, unknown>)) {
+              const page = item as Record<string, unknown>;
+              pages.push({
+                title: (page.title as string) || '',
+                slug: (page.slug as string) || ((page.title as string) || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+                meta_description: (page.meta_description as string) || (page.metaDescription as string) || '',
+                keywords: Array.isArray(page.keywords) ? page.keywords as string[] : [],
+                type: inferPageType(subKey, page.type as string),
+              });
+            }
+          }
+        }
+      }
+
+      if (pages.length > 0) {
+        result[siloKey] = pages;
+      }
+    }
+  }
+
+  return result;
+}
+
+// Infer page type from key name (pillar, cluster, blog) or from explicit type field
+function inferPageType(key: string, explicitType?: string): string {
+  if (explicitType && ['pillar', 'cluster', 'blog', 'category', 'landing'].includes(explicitType)) {
+    return explicitType;
+  }
+  const lowerKey = key.toLowerCase();
+  if (lowerKey.includes('pillar')) return 'pillar';
+  if (lowerKey.includes('cluster')) return 'cluster';
+  if (lowerKey.includes('blog')) return 'blog';
+  if (lowerKey.includes('category')) return 'category';
+  if (lowerKey.includes('landing')) return 'landing';
+  return explicitType || 'blog';
 }
 
 export async function expandKeywords(seedKeywords: string[], niche: string, language: string, req?: NextRequest): Promise<string[]> {
@@ -252,7 +459,104 @@ export async function generatePages(
 Return ONLY a JSON object where keys are silo names and values are arrays of page objects. Each page object must have: "title", "slug" (URL-friendly, lowercase, hyphens), "meta_description" (150-160 chars), "keywords" (array of 3-5 keywords), "type" (pillar|cluster|blog). No other text. Language: ${language}.` },
     { role: 'user', content: `Generate pages for silos in niche "${niche}":\n${silos.map(s => `Silo: ${s.name} - Keywords: ${s.keywords.join(', ')}`).join('\n')}` },
   ], req);
-  return extractPagesBySilo(content, silos);
+
+  console.log('[generatePages] AI raw response length:', content.length, 'first 500 chars:', content.slice(0, 500));
+
+  const result = extractPagesBySilo(content, silos);
+  console.log('[generatePages] Extracted keys:', Object.keys(result), 'total pages:', Object.values(result).reduce((sum, arr) => sum + arr.length, 0));
+
+  // If extractPagesBySilo returned empty, try a more aggressive fallback
+  if (Object.keys(result).length === 0) {
+    console.log('[generatePages] extractPagesBySilo returned empty, trying fallback parse...');
+    try {
+      const cleaned = cleanAIResponse(content);
+      const parsed = JSON.parse(cleaned);
+      console.log('[generatePages] Fallback parse succeeded, type:', typeof parsed, Array.isArray(parsed), 'keys:', Object.keys(parsed).slice(0, 10));
+
+      // If it's an array of objects with silo info
+      if (Array.isArray(parsed)) {
+        // Maybe it's a flat array of pages with a silo_name field
+        const bySilo: Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> = {};
+        for (const item of parsed) {
+          if (item && typeof item === 'object' && 'title' in item && item.title) {
+            const siloKey = (item as Record<string, unknown>).silo_name || (item as Record<string, unknown>).siloName || (item as Record<string, unknown>).silo || silos[0]?.name || 'Default';
+            if (!bySilo[siloKey as string]) bySilo[siloKey as string] = [];
+            bySilo[siloKey as string].push({
+              title: item.title as string,
+              slug: (item.slug as string) || (item.title as string).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+              meta_description: (item.meta_description as string) || (item.metaDescription as string) || '',
+              keywords: Array.isArray(item.keywords) ? item.keywords as string[] : [],
+              type: (item.type as string) || 'blog',
+            });
+          }
+        }
+        if (Object.keys(bySilo).length > 0) {
+          console.log('[generatePages] Fallback array-to-silo succeeded, keys:', Object.keys(bySilo));
+          return bySilo;
+        }
+      }
+
+      // If it's an object but keys don't match silo names, try to match by page content
+      if (typeof parsed === 'object' && !Array.isArray(parsed)) {
+        // Try every key that has an array value
+        const bySilo: Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> = {};
+        for (const [key, val] of Object.entries(parsed as Record<string, unknown>)) {
+          if (Array.isArray(val) && val.length > 0 && val[0] && typeof val[0] === 'object' && 'title' in (val[0] as Record<string, unknown>)) {
+            bySilo[key] = val as { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[];
+          }
+          // If the value is an object with a 'pages' array
+          if (val && typeof val === 'object' && !Array.isArray(val) && (val as Record<string, unknown>).pages && Array.isArray((val as Record<string, unknown>).pages)) {
+            bySilo[key] = (val as Record<string, unknown>).pages as { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[];
+          }
+          // If the value is an object with nested page arrays (like {pillar: {...}, clusters: [...], blogs: [...]})
+          if (val && typeof val === 'object' && !Array.isArray(val) && !(val as Record<string, unknown>).pages) {
+            const nested = val as Record<string, unknown>;
+            const pages: { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[] = [];
+            for (const [subKey, subVal] of Object.entries(nested)) {
+              if (subVal && typeof subVal === 'object' && !Array.isArray(subVal) && 'title' in (subVal as Record<string, unknown>)) {
+                const page = subVal as Record<string, unknown>;
+                pages.push({
+                  title: (page.title as string) || '',
+                  slug: (page.slug as string) || ((page.title as string) || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+                  meta_description: (page.meta_description as string) || (page.metaDescription as string) || '',
+                  keywords: Array.isArray(page.keywords) ? page.keywords as string[] : [],
+                  type: inferPageType(subKey, page.type as string),
+                });
+              }
+              if (Array.isArray(subVal)) {
+                for (const item of subVal) {
+                  if (item && typeof item === 'object' && 'title' in (item as Record<string, unknown>)) {
+                    const page = item as Record<string, unknown>;
+                    pages.push({
+                      title: (page.title as string) || '',
+                      slug: (page.slug as string) || ((page.title as string) || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+                      meta_description: (page.meta_description as string) || (page.metaDescription as string) || '',
+                      keywords: Array.isArray(page.keywords) ? page.keywords as string[] : [],
+                      type: inferPageType(subKey, page.type as string),
+                    });
+                  }
+                }
+              }
+            }
+            if (pages.length > 0) {
+              bySilo[key] = pages;
+            }
+          }
+        }
+        if (Object.keys(bySilo).length > 0) {
+          console.log('[generatePages] Fallback object-with-arrays succeeded, keys:', Object.keys(bySilo));
+          return bySilo;
+        }
+      }
+
+      // Ultra fallback: if we have any data, try to create pages from it
+      console.error('[generatePages] All fallbacks failed. Raw response type:', typeof parsed, 'preview:', JSON.stringify(parsed).slice(0, 500));
+    } catch (e) {
+      console.error('[generatePages] Fallback parse also failed:', e instanceof Error ? e.message : e, 'Raw text preview:', content.slice(0, 300));
+    }
+  }
+
+  return result;
 }
 
 export async function suggestInternalLinks(

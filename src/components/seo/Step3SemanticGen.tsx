@@ -49,72 +49,120 @@ export default function Step3SemanticGen() {
       }
       const data = await res.json();
 
+      // Debug: log the API response structure
+      console.log('[Step3] API response keys:', Object.keys(data), 'type pagesBySilo:', typeof data.pagesBySilo, Array.isArray(data.pagesBySilo));
+      if (data.pagesBySilo) {
+        console.log('[Step3] pagesBySilo keys:', Object.keys(data.pagesBySilo));
+        for (const [k, v] of Object.entries(data.pagesBySilo)) {
+          console.log('[Step3]  silo:', k, 'pages:', Array.isArray(v) ? v.length : typeof v);
+        }
+      }
+
+      // Helper to extract a page object from various field name conventions
+      const extractPage = (page: Record<string, unknown>, siloId: string | null, inferredType?: string) => {
+        if (!page || typeof page !== 'object' || !page.title) return null;
+        const pageType = (['pillar', 'cluster', 'blog', 'category', 'landing'].includes(page.type as string)
+          ? page.type
+          : inferredType || 'blog') as 'pillar' | 'cluster' | 'blog' | 'category' | 'landing';
+        return {
+          id: uuidv4(),
+          projectId: project.id,
+          siloId,
+          title: String(page.title),
+          slug: String(page.slug || String(page.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')),
+          metaDescription: String(page.meta_description || page.metaDescription || page.meta_desc || ''),
+          keywords: Array.isArray(page.keywords) ? page.keywords.map(String) : [],
+          type: pageType,
+          parentId: null,
+          status: 'draft' as const,
+          content: '',
+          wordCount: 0,
+        };
+      };
+
+      // Helper to infer page type from key name
+      const inferType = (key: string): string => {
+        const lower = key.toLowerCase();
+        if (lower.includes('pillar')) return 'pillar';
+        if (lower.includes('cluster')) return 'cluster';
+        if (lower.includes('blog')) return 'blog';
+        if (lower.includes('category')) return 'category';
+        if (lower.includes('landing')) return 'landing';
+        return 'blog';
+      };
+
       // Extract pagesBySilo from multiple possible response formats
-      let pagesBySilo: Record<string, unknown[]> | null = null;
+      let pagesBySilo: Record<string, unknown> | null = null;
       if (data.pagesBySilo && typeof data.pagesBySilo === 'object' && !Array.isArray(data.pagesBySilo)) {
-        pagesBySilo = data.pagesBySilo as Record<string, unknown[]>;
+        pagesBySilo = data.pagesBySilo as Record<string, unknown>;
       } else if (data.pages && typeof data.pages === 'object' && !Array.isArray(data.pages)) {
-        pagesBySilo = data.pages as Record<string, unknown[]>;
+        pagesBySilo = data.pages as Record<string, unknown>;
       } else if (data.silos && typeof data.silos === 'object' && !Array.isArray(data.silos)) {
-        pagesBySilo = data.silos as Record<string, unknown[]>;
+        pagesBySilo = data.silos as Record<string, unknown>;
       } else if (typeof data === 'object' && !Array.isArray(data) && !data.pagesBySilo && !data.pages && !data.silos && !data.error) {
         // Raw object with silo-name keys (AI returned directly without wrapper)
-        pagesBySilo = data as Record<string, unknown[]>;
+        pagesBySilo = data as Record<string, unknown>;
       }
 
       if (pagesBySilo && Object.keys(pagesBySilo).length > 0) {
-        const newPages: Array<{
-          id: string;
-          projectId: string;
-          siloId: string | null;
-          title: string;
-          slug: string;
-          metaDescription: string;
-          keywords: string[];
-          type: 'pillar' | 'cluster' | 'blog' | 'category' | 'landing';
-          parentId: string | null;
-          status: 'draft' | 'in_progress' | 'review' | 'published';
-          content: string;
-          wordCount: number;
-        }> = [];
+        const newPages: Array<ReturnType<typeof extractPage> & {}> = [];
         for (const [siloRef, siloPages] of Object.entries(pagesBySilo)) {
           // Match by both name and ID for robustness
           const silo = silos.find((s) => s.name === siloRef || s.id === siloRef);
-          const pageList = Array.isArray(siloPages) ? siloPages : [];
+          const siloId = silo?.id || null;
 
-          for (const page of pageList as Array<{
-            title: string;
-            slug: string;
-            meta_description: string;
-            keywords: string[];
-            type: string;
-          }>) {
-            if (!page || typeof page !== 'object' || !page.title) continue;
-            newPages.push({
-              id: uuidv4(),
-              projectId: project.id,
-              siloId: silo?.id || null,
-              title: page.title,
-              slug: page.slug || page.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
-              metaDescription: page.meta_description || '',
-              keywords: Array.isArray(page.keywords) ? page.keywords : [],
-              type: (['pillar', 'cluster', 'blog', 'category', 'landing'].includes(page.type)
-                ? page.type
-                : 'blog') as 'pillar' | 'cluster' | 'blog' | 'category' | 'landing',
-              parentId: null,
-              status: 'draft',
-              content: '',
-              wordCount: 0,
-            });
+          // Case 1: siloPages is an array of page objects
+          if (Array.isArray(siloPages) && siloPages.length > 0) {
+            for (const page of siloPages) {
+              const extracted = extractPage(page as Record<string, unknown>, siloId);
+              if (extracted) newPages.push(extracted);
+            }
+            continue;
+          }
+
+          // Case 2: siloPages is a nested object like {pillar: {...}, clusters: [...], blogs: [...]}
+          if (siloPages && typeof siloPages === 'object' && !Array.isArray(siloPages)) {
+            const nested = siloPages as Record<string, unknown>;
+
+            // Check for a "pages" key inside
+            if (Array.isArray(nested.pages) && nested.pages.length > 0) {
+              for (const page of nested.pages) {
+                const extracted = extractPage(page as Record<string, unknown>, siloId);
+                if (extracted) newPages.push(extracted);
+              }
+              continue;
+            }
+
+            // Process each sub-key (pillar, clusters, blogs, etc.)
+            for (const [subKey, subVal] of Object.entries(nested)) {
+              const inferredType = inferType(subKey);
+
+              // Single page object: {pillar: {title, slug, ...}}
+              if (subVal && typeof subVal === 'object' && !Array.isArray(subVal) && (subVal as Record<string, unknown>).title) {
+                const extracted = extractPage(subVal as Record<string, unknown>, siloId, inferredType);
+                if (extracted) newPages.push(extracted);
+              }
+
+              // Array of page objects: {clusters: [{title, ...}, ...]}
+              if (Array.isArray(subVal)) {
+                for (const page of subVal) {
+                  const extracted = extractPage(page as Record<string, unknown>, siloId, inferredType);
+                  if (extracted) newPages.push(extracted);
+                }
+              }
+            }
+            continue;
           }
         }
         if (newPages.length > 0) {
           setPages(newPages);
         } else {
+          console.error('[Step3] pagesBySilo had keys but no valid pages extracted. pagesBySilo:', JSON.stringify(pagesBySilo).slice(0, 500));
           setError('AI generated data but no valid pages could be extracted. Please try again.');
         }
       } else {
-        setError('AI returned unexpected format. Please try again.');
+        console.error('[Step3] No recognizable page data in response. Response keys:', Object.keys(data), 'Preview:', JSON.stringify(data).slice(0, 300));
+        setError('AI returned unexpected format. Please try again. (Response had no recognizable page data)');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate pages. Please try again.');
