@@ -201,3 +201,35 @@ Stage Summary:
 - All code committed and pushed to GitHub
 - Live deployment at https://siloforge.pages.dev (HTTP 200 verified)
 - Zero lint errors
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Fix "Not authenticated" error when adding API keys in AI Settings
+
+Work Log:
+- Investigated auth flow: JWT token stored in Zustand persist (localStorage), sent via Authorization header
+- Found root cause: token validation useEffect had empty deps [], ran before Zustand persist rehydrated from localStorage
+- Token was never validated after rehydration, so expired/invalid tokens persisted silently
+- Found no hydration guard: app briefly showed LoginPage while rehydrating, causing user confusion
+- Found no global 401 handler: API calls returning 401 didn't auto-clear stale auth state
+- Found no null-token guard: components could send "Bearer null" if token was missing
+
+Fixes applied:
+- page.tsx: Added hydration guard (50ms delay for Zustand persist rehydration)
+- page.tsx: Token validation re-runs when token changes (deps: [token, user, logout, setUser])
+- page.tsx: Global 401 interceptor — auto-logouts on any API 401 response (except login/me)
+- page.tsx: Loading spinner shown during rehydration instead of LoginPage flash
+- utils.ts: Added authFetch() utility that safely handles null tokens (no "Bearer null")
+- AdminPanel.tsx: Replaced all raw fetch() calls with authFetch() + added token null guards
+- AdminPanel.tsx: Added "Not authenticated. Please log in again." error messages when token is missing
+- Verified D1 database: users table has admin-001, ai_settings table has 2 provider entries
+- All fixes pass ESLint with zero errors
+- Committed (0d3b162), pushed to GitHub, deployed to Cloudflare Pages
+- API verification: valid token returns settings, invalid/missing token returns 401
+
+Stage Summary:
+- Root cause: Zustand persist rehydration race condition — token validation useEffect ran before store was rehydrated
+- 3 files changed: page.tsx (hydration guard + 401 interceptor), utils.ts (authFetch), AdminPanel.tsx (authFetch + guards)
+- Deployed to https://siloforge.pages.dev — commit 0d3b162
+- API auth verified working end-to-end
