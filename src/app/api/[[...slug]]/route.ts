@@ -10,7 +10,7 @@ import {
   getPagesByProject, createPage, updatePage, deletePage,
   getInternalLinksByProject, createInternalLink, deleteInternalLink,
   getAllUsers, getUserByEmail, getUserById, createUser, updateUser, deleteUser,
-  getActiveAISetting, getAISettingsByUser, upsertAISetting, deleteAISetting,
+  getActiveAISetting, getAISettingsByUser, upsertAISetting, deleteAISetting, setActiveAISetting,
   getGSCMetricsBySilo, updatePageGSCMetrics,
 } from '@/lib/db';
 import { callAI, expandKeywords, generateSilos, generatePages, suggestInternalLinks, groupKeywords, mapSearchIntent, analyzeContentGap, generateContentBrief, generateSiloAwareArticle } from '@/lib/ai';
@@ -73,9 +73,10 @@ async function handleRequest(req: NextRequest) {
       case seg[0] === 'users' && seg.length === 2 && isUUID(seg[1]) && m === 'PUT': { const d = await body(req); if (d.password) { const { hash, salt } = await hashPassword(d.password); d.password_hash = hash; d.salt = salt; delete d.password; } await updateUser(seg[1], d); return json({ ok: true }); }
       case seg[0] === 'users' && seg.length === 2 && isUUID(seg[1]) && m === 'DELETE': await deleteUser(seg[1]); return json({ ok: true });
       // Settings
-      case path === 'settings' && m === 'GET': return json(await getAISettingsByUser(url.searchParams.get('user_id') || ''));
-      case path === 'settings' && m === 'POST': { const d = await body(req); await upsertAISetting(d); return json({ ok: true }); }
-      case path === 'settings' && m === 'DELETE': await deleteAISetting(url.searchParams.get('id') || ''); return json({ ok: true });
+      case path === 'settings' && m === 'GET': { const u = await getUserFromRequest(req); return json(u ? await getAISettingsByUser(u.userId) : []); }
+      case path === 'settings' && m === 'POST': { const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const d = await body(req); await upsertAISetting({ id: d.id || crypto.randomUUID(), user_id: u.userId, provider: d.provider || '', api_key: d.api_key || '', model: d.model || '', is_active: d.is_active ?? 1 }); return json({ ok: true }); }
+      case path === 'settings' && m === 'PUT': { const d = await body(req); const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); if (d.id) await setActiveAISetting(d.id, u.userId); return json({ ok: true }); }
+      case path === 'settings' && m === 'DELETE': { const d = await body(req); await deleteAISetting(d.id || url.searchParams.get('id') || ''); return json({ ok: true }); }
       // AI
       case path === 'ai/expand-keywords' && m === 'POST': { const d = await body(req); const result = await expandKeywords(d.seedKeywords || d.keywords, d.niche, d.language, req); return json({ keywords: result }); }
       case path === 'ai/generate-silos' && m === 'POST': { const d = await body(req); return json(await generateSilos(d.niche, d.keywords, d.language, req)); }
