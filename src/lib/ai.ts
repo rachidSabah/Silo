@@ -311,7 +311,7 @@ export async function analyzeContentGap(
     { role: 'system', content: `You are an SEO competitive analysis expert. Compare the user's content silos with a competitor's silos to identify content gaps - topics the competitor covers that the user does not. Return ONLY a JSON array of gap objects with "topic" (missing topic), "keywords" (related keywords), "priority" (high/medium/low based on search demand), and "suggestedSilo" (which of the user's silos this topic fits best). No other text.` },
     { role: 'user', content: `User's silos:\n${JSON.stringify(userSilos)}\n\nCompetitor's silos:\n${JSON.stringify(competitorSilos)}\n\nNiche: ${niche}` },
   ], req);
-  return parseJSON(content, []);
+  return extractArray<{ topic: string; keywords: string[]; priority: 'high' | 'medium' | 'low'; suggestedSilo: string }>(content, 'gaps', []);
 }
 
 export interface ContentBrief {
@@ -346,7 +346,27 @@ export async function generateContentBrief(
 - Niche: ${niche}
 - Sibling pages in silo: ${JSON.stringify(siblingPages)}` },
   ], req);
-  return parseJSON(content, null);
+  // Extract brief from AI response, handling wrapped formats like {brief: {...}}
+  try {
+    const cleaned = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+    // If AI wrapped it in {brief: {...}}, extract inner
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      // Check for common wrapper keys
+      for (const key of ['brief', 'contentBrief', 'data', 'result']) {
+        if (parsed[key] && typeof parsed[key] === 'object' && !Array.isArray(parsed[key])) {
+          return parsed[key] as ContentBrief;
+        }
+      }
+      // If parsed itself looks like a ContentBrief (has title field), return it
+      if (parsed.title && typeof parsed.title === 'string') {
+        return parsed as ContentBrief;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // ===== SILO-AWARE CONTENT GENERATION =====
@@ -442,7 +462,26 @@ Write the full article now. Return ONLY the JSON object.`;
     { role: 'user', content: userPrompt },
   ], req);
 
-  return parseJSON(content, null);
+  // Extract article from AI response, handling wrapped formats like {article: {...}}
+  try {
+    const cleaned = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+    // If AI wrapped it in {article: {...}}, extract inner
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      for (const key of ['article', 'data', 'result']) {
+        if (parsed[key] && typeof parsed[key] === 'object' && !Array.isArray(parsed[key])) {
+          return parsed[key] as GeneratedArticleResult;
+        }
+      }
+      // If parsed itself looks like a GeneratedArticleResult (has content field), return it
+      if (parsed.content && typeof parsed.content === 'string') {
+        return parsed as GeneratedArticleResult;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**

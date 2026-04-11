@@ -94,6 +94,15 @@ export default function InternalLinkingEngine() {
 
       // Save to DB and store
       if (suggestedLinks.length > 0) {
+        // Convert AI format {from, to, anchor} to DB format and add to store
+        const newLinks = suggestedLinks.map((l: { from: string; to: string; anchor: string }) => ({
+          id: uuidv4(),
+          projectId: project.id,
+          fromPageId: l.from,
+          toPageId: l.to,
+          anchor: l.anchor,
+        }));
+
         const dbRes = await fetch('/api/internal-links', {
           method: 'POST',
           headers: {
@@ -107,16 +116,8 @@ export default function InternalLinkingEngine() {
         });
 
         if (dbRes.ok) {
-          const dbData = await dbRes.json();
-          if (dbData.links) {
-            setInternalLinks(dbData.links.map((l: Record<string, string>) => ({
-              id: l.id,
-              projectId: l.project_id || project.id,
-              fromPageId: l.from_page_id || l.from,
-              toPageId: l.to_page_id || l.to,
-              anchor: l.anchor,
-            })));
-          }
+          // Add the links to the local store with proper format
+          addInternalLinks(newLinks);
         }
       }
     } catch (err: unknown) {

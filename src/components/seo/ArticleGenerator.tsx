@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useStore, type Page, type GeneratedArticle, type CMSConfig } from '@/store/useStore';
 import PageTypeBadge from './PageTypeBadge';
+import { sanitizeHTML } from '@/lib/utils';
 import {
   FileText, Sparkles, ArrowRight, RefreshCw, ChevronDown, ChevronRight,
   AlertTriangle, CheckCircle2, Copy, Download, ExternalLink,
@@ -599,7 +600,7 @@ export default function ArticleGenerator() {
                   </div>
                 ) : (
                   <div className="bg-white rounded-xl p-6 md:p-8 prose prose-slate max-w-none">
-                    <div dangerouslySetInnerHTML={{ __html: page.content }} />
+                    <div dangerouslySetInnerHTML={{ __html: sanitizeHTML(page.content) }} />
                   </div>
                 )}
               </div>

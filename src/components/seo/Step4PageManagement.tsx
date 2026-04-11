@@ -163,6 +163,7 @@ export default function Step4PageManagement() {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('project_id', project.id);
 
       const importHeaders: Record<string, string> = {};
       if (token) importHeaders['Authorization'] = `Bearer ${token}`;
@@ -211,10 +212,12 @@ export default function Step4PageManagement() {
             status: (['draft', 'in_progress', 'review', 'published'].includes(row.status)
               ? row.status
               : 'draft') as 'draft' | 'in_progress' | 'review' | 'published',
+            content: '',
+            wordCount: 0,
           };
         });
         setPages([...pages, ...newPages]);
-        alert(`Imported ${newPages.length} pages successfully!`);
+        alert(`Imported ${data.imported || newPages.length} pages successfully!`);
       } else if (!data.errors || data.errors.length === 0) {
         alert('No valid rows found in the CSV file.');
       }

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 export default function CompetitorImporter() {
-  const { token, setStep, setSavedProjectId } = useStore();
+  const { token, setStep, setSavedProjectId, setProject, setSilos, setPages } = useStore();
 
   const [targetUrl, setTargetUrl] = useState('');
   const [projectName, setProjectName] = useState('');
@@ -52,6 +52,59 @@ export default function CompetitorImporter() {
       if (res.ok) {
         setResult(data);
         setSavedProjectId(data.project_id);
+        // Fetch the created project data and populate the store
+        try {
+          const headers: Record<string, string> = {};
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          const [projectRes, silosRes, pagesRes] = await Promise.all([
+            fetch(`/api/projects/${data.project_id}`, { headers }),
+            fetch(`/api/silos?project_id=${data.project_id}`, { headers }),
+            fetch(`/api/pages?project_id=${data.project_id}`, { headers }),
+          ]);
+          if (projectRes.ok) {
+            const projectData = await projectRes.json();
+            if (projectData) {
+              setProject({
+                id: projectData.id,
+                name: projectData.name,
+                domain: projectData.domain,
+                language: projectData.language,
+                niche: projectData.niche || '',
+                seedKeywords: projectData.seed_keywords ? (typeof projectData.seed_keywords === 'string' ? projectData.seed_keywords.split(',').map((k: string) => k.trim()).filter(Boolean) : projectData.seed_keywords) : [],
+              });
+            }
+          }
+          if (silosRes.ok) {
+            const silosData = await silosRes.json();
+            const silosList = Array.isArray(silosData) ? silosData : (silosData.results || []);
+            setSilos(silosList.map((s: Record<string, unknown>) => ({
+              id: s.id as string,
+              projectId: s.project_id as string,
+              name: s.name as string,
+              keywords: typeof s.keywords === 'string' ? s.keywords.split(',').map((k: string) => k.trim()).filter(Boolean) : (Array.isArray(s.keywords) ? s.keywords : []),
+            })));
+          }
+          if (pagesRes.ok) {
+            const pagesData = await pagesRes.json();
+            const pagesList = Array.isArray(pagesData) ? pagesData : (pagesData.results || []);
+            setPages(pagesList.map((p: Record<string, unknown>) => ({
+              id: p.id as string,
+              projectId: p.project_id as string,
+              siloId: (p.silo_id as string) || null,
+              title: p.title as string,
+              slug: p.slug as string,
+              metaDescription: (p.meta_description as string) || '',
+              keywords: typeof p.keywords === 'string' ? p.keywords.split(',').map((k: string) => k.trim()).filter(Boolean) : (Array.isArray(p.keywords) ? p.keywords : []),
+              type: (p.type as 'pillar' | 'cluster' | 'blog' | 'category' | 'landing') || 'blog',
+              parentId: (p.parent_id as string) || null,
+              status: (p.status as 'draft' | 'in_progress' | 'review' | 'published') || 'draft',
+              content: (p.content as string) || '',
+              wordCount: (p.word_count as number) || 0,
+            })));
+          }
+        } catch (e) {
+          console.error('Failed to load imported data into store:', e);
+        }
       } else {
         setError(data.error || 'Import failed. Please try again.');
       }

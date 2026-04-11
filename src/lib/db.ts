@@ -280,8 +280,20 @@ export async function getPagesByProject(projectId: string) {
 export async function createPage(data: { id: string; project_id: string; silo_id?: string | null; title: string; slug: string; meta_description?: string; keywords?: string; type: string; parent_id?: string | null; status?: string; content?: string; word_count?: number; gsc_clicks?: number; gsc_impressions?: number; gsc_position?: number; gsc_ctr?: number }) {
   if (isCloudflare()) {
     const db = getD1();
-    await db.prepare('INSERT OR REPLACE INTO pages (id, project_id, silo_id, title, slug, meta_description, keywords, type, parent_id, status, content, word_count, gsc_clicks, gsc_impressions, gsc_position, gsc_ctr) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(data.id, data.project_id, data.silo_id || null, data.title, data.slug, data.meta_description || null, data.keywords || null, data.type, data.parent_id || null, data.status || 'draft', data.content || null, data.word_count || null, data.gsc_clicks || 0, data.gsc_impressions || 0, data.gsc_position || 0, data.gsc_ctr || 0).run();
+    // Check if page already exists to preserve GSC metrics on update
+    const existing = await db.prepare('SELECT gsc_clicks, gsc_impressions, gsc_position, gsc_ctr, gsc_last_synced FROM pages WHERE id = ?').bind(data.id).first() as Record<string, unknown> | null;
+    if (existing) {
+      // Update existing page, preserving GSC metrics that aren't explicitly provided
+      const gscClicks = data.gsc_clicks !== undefined ? data.gsc_clicks : (existing.gsc_clicks as number) || 0;
+      const gscImpressions = data.gsc_impressions !== undefined ? data.gsc_impressions : (existing.gsc_impressions as number) || 0;
+      const gscPosition = data.gsc_position !== undefined ? data.gsc_position : (existing.gsc_position as number) || 0;
+      const gscCtr = data.gsc_ctr !== undefined ? data.gsc_ctr : (existing.gsc_ctr as number) || 0;
+      await db.prepare('UPDATE pages SET project_id = ?, silo_id = ?, title = ?, slug = ?, meta_description = ?, keywords = ?, type = ?, parent_id = ?, status = ?, content = ?, word_count = ?, gsc_clicks = ?, gsc_impressions = ?, gsc_position = ?, gsc_ctr = ? WHERE id = ?')
+        .bind(data.project_id, data.silo_id ?? null, data.title, data.slug, data.meta_description || null, data.keywords || null, data.type, data.parent_id ?? null, data.status || 'draft', data.content ?? null, data.word_count ?? null, gscClicks, gscImpressions, gscPosition, gscCtr, data.id).run();
+    } else {
+      await db.prepare('INSERT INTO pages (id, project_id, silo_id, title, slug, meta_description, keywords, type, parent_id, status, content, word_count, gsc_clicks, gsc_impressions, gsc_position, gsc_ctr) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(data.id, data.project_id, data.silo_id ?? null, data.title, data.slug, data.meta_description || null, data.keywords || null, data.type, data.parent_id ?? null, data.status || 'draft', data.content ?? null, data.word_count ?? null, data.gsc_clicks ?? 0, data.gsc_impressions ?? 0, data.gsc_position ?? 0, data.gsc_ctr ?? 0).run();
+    }
     return;
   }
   const mem = getMemDB();
@@ -290,20 +302,20 @@ export async function createPage(data: { id: string; project_id: string; silo_id
   mem.pages.push({
     id: data.id,
     project_id: data.project_id,
-    silo_id: data.silo_id || null,
+    silo_id: data.silo_id ?? null,
     title: data.title,
     slug: data.slug,
-    meta_description: data.meta_description || null,
-    keywords: data.keywords || null,
+    meta_description: data.meta_description ?? null,
+    keywords: data.keywords ?? null,
     type: data.type,
-    parent_id: data.parent_id || null,
+    parent_id: data.parent_id ?? null,
     status: data.status || 'draft',
-    content: data.content || null,
-    word_count: data.word_count || null,
-    gsc_clicks: data.gsc_clicks || 0,
-    gsc_impressions: data.gsc_impressions || 0,
-    gsc_position: data.gsc_position || 0,
-    gsc_ctr: data.gsc_ctr || 0,
+    content: data.content ?? null,
+    word_count: data.word_count ?? null,
+    gsc_clicks: data.gsc_clicks ?? 0,
+    gsc_impressions: data.gsc_impressions ?? 0,
+    gsc_position: data.gsc_position ?? 0,
+    gsc_ctr: data.gsc_ctr ?? 0,
     gsc_last_synced: null,
   });
 }
