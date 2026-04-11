@@ -80,13 +80,13 @@ async function handleRequest(req: NextRequest) {
       // AI
       case path === 'ai/expand-keywords' && m === 'POST': { const d = await body(req); const result = await expandKeywords(d.seedKeywords || d.keywords, d.niche, d.language, req); return json({ keywords: result }); }
       case path === 'ai/generate-silos' && m === 'POST': { const d = await body(req); const silos = await generateSilos(d.niche, d.keywords, d.language, req); return json({ silos }); }
-      case path === 'ai/generate-pages' && m === 'POST': { const d = await body(req); return json(await generatePages(d.silos, d.niche, d.language, req)); }
-      case path === 'ai/keyword-cluster' && m === 'POST': { const d = await body(req); return json(await groupKeywords(d.keywords, d.niche, req)); }
-      case path === 'ai/search-intent' && m === 'POST': { const d = await body(req); return json(await mapSearchIntent(d.keywords, req)); }
-      case path === 'ai/content-gap' && m === 'POST': { const d = await body(req); return json(await analyzeContentGap(d.userSilos, d.competitorSilos, d.niche, req)); }
-      case path === 'ai/content-brief' && m === 'POST': { const d = await body(req); return json(await generateContentBrief(d.title, d.type, d.siloName, d.keywords, d.siblingPages, d.niche, req)); }
-      case path === 'ai/generate-article' && m === 'POST': { const d = await body(req); return json(await generateSiloAwareArticle(d.title, d.type, d.keywords, d.siloContext, d.wordCountTarget, req)); }
-      case path === 'ai/internal-links' && m === 'POST': { const d = await body(req); return json(await suggestInternalLinks(d.pages, d.silos, req)); }
+      case path === 'ai/generate-pages' && m === 'POST': { const d = await body(req); const result = await generatePages(d.silos, d.niche, d.language, req); return json({ pagesBySilo: result }); }
+      case path === 'ai/keyword-cluster' && m === 'POST': { const d = await body(req); const result = await groupKeywords(d.keywords, d.niche, req); return json({ clusters: result }); }
+      case path === 'ai/search-intent' && m === 'POST': { const d = await body(req); const result = await mapSearchIntent(d.keywords, req); return json({ intents: result }); }
+      case path === 'ai/content-gap' && m === 'POST': { const d = await body(req); const result = await analyzeContentGap(d.userSilos, d.competitorSilos, d.niche, req); return json({ gaps: result }); }
+      case path === 'ai/content-brief' && m === 'POST': { const d = await body(req); const result = await generateContentBrief(d.title || d.pageTitle, d.type || d.pageType, d.siloName, d.keywords, d.siblingPages || [], d.niche, req); return json({ brief: result }); }
+      case path === 'ai/generate-article' && m === 'POST': { const d = await body(req); const result = await generateSiloAwareArticle(d.pageTitle || d.title, d.pageType || d.type, d.pageKeywords || d.keywords, d.siloContext, d.wordCountTarget || 2000, req); return json({ article: result }); }
+      case path === 'ai/internal-links' && m === 'POST': { const d = await body(req); const result = await suggestInternalLinks(d.pages, d.silos, req); return json({ links: result }); }
       case path === 'ai/bulk-generate' && m === 'POST': { const d = await body(req); return json(await generateSiloAwareArticle(d.pages?.[0]?.title || '', d.pages?.[0]?.type || 'pillar', d.pages?.[0]?.keywords || [], { siloName: d.siloName, pillarPage: null, siblingPages: [], internalLinks: [], brandVoice: d.brandVoice, niche: d.niche }, 2000, req)); }
       // Import/Export
       case path === 'import-competitor' && m === 'POST': return await handleImportCompetitor(req);

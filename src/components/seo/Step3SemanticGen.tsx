@@ -49,7 +49,20 @@ export default function Step3SemanticGen() {
       }
       const data = await res.json();
 
-      if (data.pagesBySilo) {
+      // Extract pagesBySilo from multiple possible response formats
+      let pagesBySilo: Record<string, unknown[]> | null = null;
+      if (data.pagesBySilo && typeof data.pagesBySilo === 'object' && !Array.isArray(data.pagesBySilo)) {
+        pagesBySilo = data.pagesBySilo as Record<string, unknown[]>;
+      } else if (data.pages && typeof data.pages === 'object' && !Array.isArray(data.pages)) {
+        pagesBySilo = data.pages as Record<string, unknown[]>;
+      } else if (data.silos && typeof data.silos === 'object' && !Array.isArray(data.silos)) {
+        pagesBySilo = data.silos as Record<string, unknown[]>;
+      } else if (typeof data === 'object' && !Array.isArray(data) && !data.pagesBySilo && !data.pages && !data.silos && !data.error) {
+        // Raw object with silo-name keys (AI returned directly without wrapper)
+        pagesBySilo = data as Record<string, unknown[]>;
+      }
+
+      if (pagesBySilo && Object.keys(pagesBySilo).length > 0) {
         const newPages: Array<{
           id: string;
           projectId: string;
@@ -64,18 +77,19 @@ export default function Step3SemanticGen() {
           content: string;
           wordCount: number;
         }> = [];
-        for (const [siloRef, siloPages] of Object.entries(data.pagesBySilo)) {
+        for (const [siloRef, siloPages] of Object.entries(pagesBySilo)) {
           // Match by both name and ID for robustness
           const silo = silos.find((s) => s.name === siloRef || s.id === siloRef);
-          const pageList = siloPages as Array<{
+          const pageList = Array.isArray(siloPages) ? siloPages : [];
+
+          for (const page of pageList as Array<{
             title: string;
             slug: string;
             meta_description: string;
             keywords: string[];
             type: string;
-          }>;
-
-          for (const page of pageList) {
+          }>) {
+            if (!page || typeof page !== 'object' || !page.title) continue;
             newPages.push({
               id: uuidv4(),
               projectId: project.id,
@@ -83,7 +97,7 @@ export default function Step3SemanticGen() {
               title: page.title,
               slug: page.slug || page.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
               metaDescription: page.meta_description || '',
-              keywords: page.keywords || [],
+              keywords: Array.isArray(page.keywords) ? page.keywords : [],
               type: (['pillar', 'cluster', 'blog', 'category', 'landing'].includes(page.type)
                 ? page.type
                 : 'blog') as 'pillar' | 'cluster' | 'blog' | 'category' | 'landing',
@@ -94,7 +108,11 @@ export default function Step3SemanticGen() {
             });
           }
         }
-        setPages(newPages);
+        if (newPages.length > 0) {
+          setPages(newPages);
+        } else {
+          setError('AI generated data but no valid pages could be extracted. Please try again.');
+        }
       } else {
         setError('AI returned unexpected format. Please try again.');
       }

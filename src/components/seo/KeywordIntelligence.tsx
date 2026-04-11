@@ -78,7 +78,7 @@ export default function KeywordIntelligence() {
         throw new Error(err.error || 'Failed to cluster keywords');
       }
       const data = await res.json();
-      setKeywordClusters(data.clusters || []);
+      setKeywordClusters(data.clusters || (Array.isArray(data) ? data : []));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Keyword clustering failed');
     } finally {
@@ -105,7 +105,7 @@ export default function KeywordIntelligence() {
         throw new Error(err.error || 'Failed to map intent');
       }
       const data = await res.json();
-      setIntentMap(data.intents || []);
+      setIntentMap(data.intents || (Array.isArray(data) ? data : []));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Intent mapping failed');
     } finally {
@@ -151,9 +151,10 @@ export default function KeywordIntelligence() {
       }
 
       const data = await res.json();
-      setContentGaps(data.gaps || []);
+      const gaps = data.gaps || (Array.isArray(data) ? data : []);
+      setContentGaps(gaps);
       const { setContentGaps: storeSetGaps } = useStore.getState();
-      storeSetGaps(data.gaps || []);
+      storeSetGaps(gaps);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Gap analysis failed');
     } finally {

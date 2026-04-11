@@ -126,14 +126,16 @@ export default function ArticleGenerator() {
       }
 
       const data = await res.json();
-      if (data.article) {
+      // Handle both {article: {...}} and raw article object responses
+      const articleData = data.article || (data.content ? data : null);
+      if (articleData) {
         const article: GeneratedArticle = {
           pageId: page.id,
-          title: data.article.title,
-          content: data.article.content,
-          wordCount: data.article.wordCount,
-          internalLinks: data.article.internalLinks || [],
-          metaDescription: data.article.metaDescription,
+          title: articleData.title,
+          content: articleData.content,
+          wordCount: articleData.wordCount,
+          internalLinks: articleData.internalLinks || [],
+          metaDescription: articleData.metaDescription,
         };
         addGeneratedArticle(article);
 
@@ -200,31 +202,30 @@ export default function ArticleGenerator() {
 
     setCmsPushing(pageId);
     try {
-      const res = await fetch('/api/cms/push', {
+      const res = await fetch('/api/cms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          cmsType: cmsConfig.type,
-          cmsUrl: cmsConfig.url,
-          cmsApiKey: cmsConfig.apiKey,
-          cmsUsername: cmsConfig.username,
-          cmsPassword: cmsConfig.password,
-          article: {
+          type: cmsConfig.type,
+          url: cmsConfig.url,
+          api_key: cmsConfig.apiKey,
+          username: cmsConfig.username,
+          password: cmsConfig.password,
+          content: {
             title: page.title,
-            content: page.content,
+            body: page.content,
             slug: page.slug,
-            metaDescription: page.metaDescription,
+            meta_description: page.metaDescription,
             status: page.status,
           },
-          publish: false,
         }),
       });
 
       const data = await res.json();
-      if (res.ok && data.success) {
+      if (res.ok && data.ok) {
         setCmsPushResult(prev => ({
           ...prev,
-          [pageId]: { success: true, message: data.postUrl || data.response?.id || 'Pushed successfully' },
+          [pageId]: { success: true, message: data.result?.id ? `Post ID: ${data.result.id}` : 'Pushed successfully' },
         }));
         // Update page status
         updatePage(pageId, { status: 'review' });

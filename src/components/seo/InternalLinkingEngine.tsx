@@ -44,8 +44,9 @@ export default function InternalLinkingEngine() {
         });
         if (res.ok) {
           const data = await res.json();
-          if (data.links) {
-            setInternalLinks(data.links.map((l: Record<string, string>) => ({
+          if (data.links || Array.isArray(data)) {
+            const rawLinks = data.links || (Array.isArray(data) ? data : []);
+            setInternalLinks(rawLinks.map((l: Record<string, string>) => ({
               id: l.id,
               projectId: l.project_id,
               fromPageId: l.from_page_id,
@@ -89,7 +90,7 @@ export default function InternalLinkingEngine() {
       }
 
       const data = await res.json();
-      const suggestedLinks = data.links || [];
+      const suggestedLinks = data.links || (Array.isArray(data) ? data : []);
 
       // Save to DB and store
       if (suggestedLinks.length > 0) {

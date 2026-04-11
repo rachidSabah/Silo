@@ -162,6 +162,59 @@ function extractArray<T>(text: string, arrayKey: string, fallback: T[]): T[] {
   }
 }
 
+// Extract a Record<string, array> from AI response for page generation
+// Handles: {siloName: [...]} directly, or {pagesBySilo: {...}}, {pages: {...}}, etc.
+function extractPagesBySilo(
+  text: string,
+  silos: { name: string; keywords: string[] }[]
+): Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> {
+  try {
+    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+    // Check common wrapper keys first
+    for (const key of ['pagesBySilo', 'pages', 'silos', 'data', 'result']) {
+      if (parsed[key] && typeof parsed[key] === 'object' && !Array.isArray(parsed[key])) {
+        const inner = parsed[key] as Record<string, unknown>;
+        // Verify it looks like {siloName: [...]}
+        const hasValidEntries = Object.values(inner).some(v => Array.isArray(v));
+        if (hasValidEntries) return inner as Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]>;
+      }
+    }
+
+    // Check if parsed itself is {siloName: [...]} directly
+    const siloNames = new Set(silos.map(s => s.name));
+    const entries = Object.entries(parsed);
+    const matchingEntries = entries.filter(([key, val]) =>
+      (siloNames.has(key) || (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object' && val[0] !== null && 'title' in (val[0] as Record<string, unknown>)))
+    );
+    if (matchingEntries.length > 0) {
+      const result: Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]> = {};
+      for (const [key, val] of matchingEntries) {
+        if (Array.isArray(val)) {
+          result[key] = val as { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[];
+        }
+      }
+      if (Object.keys(result).length > 0) return result;
+    }
+
+    // Last resort: find any property whose value is an object with array values
+    for (const [key, val] of entries) {
+      if (val && typeof val === 'object' && !Array.isArray(val)) {
+        const inner = val as Record<string, unknown>;
+        const hasValidArrays = Object.values(inner).some(v => Array.isArray(v));
+        if (hasValidArrays) return inner as Record<string, { title: string; slug: string; meta_description: string; keywords: string[]; type: string }[]>;
+      }
+    }
+
+    return {};
+  } catch {
+    return {};
+  }
+}
+
 export async function expandKeywords(seedKeywords: string[], niche: string, language: string, req?: NextRequest): Promise<string[]> {
   const safeKeywords = Array.isArray(seedKeywords) ? seedKeywords : [niche || 'seo'].filter(Boolean);
   const content = await callAI([
@@ -195,7 +248,7 @@ export async function generatePages(
 Return ONLY a JSON object where keys are silo names and values are arrays of page objects. Each page object must have: "title", "slug" (URL-friendly, lowercase, hyphens), "meta_description" (150-160 chars), "keywords" (array of 3-5 keywords), "type" (pillar|cluster|blog). No other text. Language: ${language}.` },
     { role: 'user', content: `Generate pages for silos in niche "${niche}":\n${silos.map(s => `Silo: ${s.name} - Keywords: ${s.keywords.join(', ')}`).join('\n')}` },
   ], req);
-  return parseJSON(content, {});
+  return extractPagesBySilo(content, silos);
 }
 
 export async function suggestInternalLinks(

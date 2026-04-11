@@ -67,7 +67,9 @@ export default function ContentBriefGenerator() {
       }
 
       const data = await res.json();
-      setContentBrief(data.brief);
+      // Handle both {brief: {...}} and raw brief object responses
+      const brief = data.brief || (data.title ? data : null);
+      setContentBrief(brief);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Brief generation failed');
     } finally {
