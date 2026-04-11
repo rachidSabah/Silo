@@ -6,6 +6,23 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Authenticated fetch wrapper that automatically adds the Authorization header
+ * if a token is available. Returns a Response object just like native fetch.
+ * If the token is null/undefined, the request proceeds without auth headers
+ * (the backend will return 401 if auth is required).
+ */
+export function authFetch(url: string | URL | globalThis.Request, token: string | null, options?: RequestInit): Promise<Response> {
+  const headers = new Headers(options?.headers);
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  if (!headers.has('Content-Type') && options?.body && typeof options.body === 'string') {
+    headers.set('Content-Type', 'application/json');
+  }
+  return fetch(url, { ...options, headers });
+}
+
+/**
  * Sanitize HTML to prevent XSS attacks while preserving safe formatting tags.
  * Strips <script>, <iframe>, <object>, <embed>, <form>, and dangerous event handlers.
  */

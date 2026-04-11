@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '@/store/useStore';
+import { authFetch } from '@/lib/utils';
 import {
   Users, Key, Shield, Plus, Trash2, Edit3, Check, X,
   Loader2, Eye, EyeOff, ChevronDown, ChevronRight, Lock,
@@ -51,12 +52,10 @@ export default function AdminPanel() {
   const isAdmin = user?.role === 'admin';
 
   const loadUsers = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!isAdmin || !token) return;
     setLoading(true);
     try {
-      const res = await fetch('/api/users', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await authFetch('/api/users', token);
       if (res.ok) {
         const data = await res.json();
         setUsers(Array.isArray(data) ? data : []);
@@ -79,10 +78,14 @@ export default function AdminPanel() {
       setAddUserMsg({ type: 'error', text: 'All fields are required' });
       return;
     }
+    if (!token) {
+      setAddUserMsg({ type: 'error', text: 'Not authenticated. Please log in again.' });
+      return;
+    }
     try {
-      const res = await fetch('/api/users', {
+      const res = await authFetch('/api/users', token, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newUserName, email: newUserEmail, password: newUserPassword, role: newUserRole }),
       });
       const data = await res.json();
@@ -117,9 +120,9 @@ export default function AdminPanel() {
       if (editRole) body.role = editRole;
       if (editPassword) body.password = editPassword;
 
-      const res = await fetch(`/api/users/${id}`, {
+      const res = await authFetch(`/api/users/${id}`, token, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       if (res.ok) {
@@ -134,9 +137,8 @@ export default function AdminPanel() {
   const handleDeleteUser = async (id: string) => {
     if (deleteConfirm === id) {
       try {
-        const res = await fetch(`/api/users/${id}`, {
+        const res = await authFetch(`/api/users/${id}`, token, {
           method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
           loadUsers();
@@ -167,10 +169,14 @@ export default function AdminPanel() {
       setPasswordMsg({ type: 'error', text: 'Passwords do not match' });
       return;
     }
+    if (!token) {
+      setPasswordMsg({ type: 'error', text: 'Not authenticated. Please log in again.' });
+      return;
+    }
     try {
-      const res = await fetch('/api/auth/change-password', {
+      const res = await authFetch('/api/auth/change-password', token, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
       });
       const data = await res.json();
@@ -459,11 +465,10 @@ function AISettingsPanel() {
   const [showKey, setShowKey] = useState(false);
 
   const loadSettings = useCallback(async () => {
+    if (!token) return;
     setLoading(true);
     try {
-      const res = await fetch('/api/settings', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await authFetch('/api/settings', token);
       if (res.ok) {
         const data = await res.json();
         setSettings(Array.isArray(data) ? data : []);
@@ -489,10 +494,14 @@ function AISettingsPanel() {
       setMsg({ type: 'error', text: 'API key is required' });
       return;
     }
+    if (!token) {
+      setMsg({ type: 'error', text: 'Not authenticated. Please log in again.' });
+      return;
+    }
     try {
-      const res = await fetch('/api/settings', {
+      const res = await authFetch('/api/settings', token, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider, api_key: apiKey, model, is_active: makeActive }),
       });
       const data = await res.json();
@@ -511,10 +520,11 @@ function AISettingsPanel() {
   };
 
   const handleActivate = async (id: string) => {
+    if (!token) return;
     try {
-      await fetch('/api/settings', {
+      await authFetch('/api/settings', token, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
       });
       loadSettings();
@@ -524,10 +534,11 @@ function AISettingsPanel() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!token) return;
     try {
-      await fetch('/api/settings', {
+      await authFetch('/api/settings', token, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
       });
       loadSettings();

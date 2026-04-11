@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import LoginPage from '@/components/seo/LoginPage';
 import Sidebar from '@/components/seo/Sidebar';
@@ -22,29 +22,66 @@ import CompetitorImporter from '@/components/seo/CompetitorImporter';
 import PDFReportExport from '@/components/seo/PDFReportExport';
 
 export default function Home() {
-  const { currentStep, user, token, setUser, setToken } = useStore();
+  const { currentStep, user, token, setUser, setToken, logout } = useStore();
 
-  // Verify token on mount
+  // Hydration guard: wait for Zustand persist to rehydrate from localStorage
+  const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
-    if (token && user) {
+    // Zustand persist rehydrates asynchronously; give it a tick to complete
+    const t = setTimeout(() => setHydrated(true), 50);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Token validation: re-run when token changes (i.e., after rehydration or login)
+  const validatedRef = useRef(false);
+  useEffect(() => {
+    // Only validate when we have a token and haven't already validated this token
+    if (token && user && !validatedRef.current) {
+      validatedRef.current = true;
       fetch('/api/auth/me', {
         headers: { Authorization: `Bearer ${token}` },
       })
         .then((res) => {
           if (!res.ok) {
-            setUser(null);
-            setToken(null);
+            // Token is invalid/expired — force logout
+            logout();
+            validatedRef.current = false;
           }
           return res.json();
         })
         .then((data) => {
-          if (data.user) setUser(data.user);
+          if (data?.user) setUser(data.user);
         })
         .catch(() => {
-          // Token invalid, clear auth
+          // Network error — don't logout, might be temporary
         });
     }
-  }, []);
+
+    // Reset validation flag when token is cleared (logout)
+    if (!token) {
+      validatedRef.current = false;
+    }
+  }, [token, user, logout, setUser]);
+
+  // Global 401 interceptor: any API call returning 401 should force logout
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      const response = await originalFetch(...args);
+      if (response.status === 401) {
+        // Check if this is an API route (not the login/me endpoint)
+        const url = typeof args[0] === 'string' ? args[0] : (args[0] as Request).url;
+        if (url.includes('/api/') && !url.includes('/api/auth/login') && !url.includes('/api/auth/me')) {
+          // Force logout on 401 from any API call
+          logout();
+        }
+      }
+      return response;
+    };
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, [logout]);
 
   // Handle GSC OAuth callback — tokens are returned in URL hash
   useEffect(() => {
@@ -58,24 +95,32 @@ export default function Home() {
 
     if (gscError) {
       console.warn('[GSC-OAuth] Error from Google:', gscError);
-      // Clean up URL
       window.history.replaceState({}, '', '/');
       return;
     }
 
     if (gscAccessToken) {
-      // Store GSC token in sessionStorage for the GSC Analytics Dashboard to pick up
       sessionStorage.setItem('gsc_access_token', gscAccessToken);
       const refreshToken = params.get('gsc_refresh_token');
       if (refreshToken) {
         sessionStorage.setItem('gsc_refresh_token', refreshToken);
       }
-      // Navigate to GSC Analytics dashboard (step 12)
       useStore.getState().setStep(12);
-      // Clean up URL hash
       window.history.replaceState({}, '', '/');
     }
   }, []);
+
+  // Show loading spinner while Zustand persist is rehydrating
+  if (!hydrated) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center bg-slate-950">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-500 text-sm">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   // Show login if not authenticated
   if (!user || !token) {
