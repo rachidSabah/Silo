@@ -17,6 +17,9 @@ import InternalLinkingEngine from '@/components/seo/InternalLinkingEngine';
 import KeywordIntelligence from '@/components/seo/KeywordIntelligence';
 import ContentBriefGenerator from '@/components/seo/ContentBriefGenerator';
 import ArticleGenerator from '@/components/seo/ArticleGenerator';
+import GSCAnalyticsDashboard from '@/components/seo/GSCAnalyticsDashboard';
+import CompetitorImporter from '@/components/seo/CompetitorImporter';
+import PDFReportExport from '@/components/seo/PDFReportExport';
 
 export default function Home() {
   const { currentStep, user, token, setUser, setToken } = useStore();
@@ -74,6 +77,12 @@ export default function Home() {
         return <ContentBriefGenerator />;
       case 11:
         return <ArticleGenerator />;
+      case 12:
+        return <GSCAnalyticsDashboard />;
+      case 13:
+        return <CompetitorImporter />;
+      case 14:
+        return <PDFReportExport />;
       case 99:
         return <AdminPanel />;
       default:

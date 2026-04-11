@@ -84,6 +84,27 @@ export interface GeneratedArticle {
   metaDescription: string;
 }
 
+export interface GSCSiloMetrics {
+  silo_id: string;
+  silo_name: string;
+  total_clicks: number;
+  total_impressions: number;
+  avg_position: number;
+  avg_ctr: number;
+  page_count: number;
+  top_page: { title: string; clicks: number } | null;
+}
+
+export interface GSCSyncResult {
+  synced_pages: number;
+  total_pages: number;
+  total_clicks: number;
+  total_impressions: number;
+  avg_position: number;
+  gsc_rows_fetched: number;
+  date_range: { start: string; end: string };
+}
+
 export interface CMSConfig {
   id: string;
   type: 'wordpress' | 'webhook' | 'headless';
@@ -112,6 +133,11 @@ interface AppState {
 
   // CMS configs
   cmsConfigs: CMSConfig[];
+
+  // GSC Analytics
+  gscSiloMetrics: GSCSiloMetrics[];
+  gscSyncResult: GSCSyncResult | null;
+  gscSyncLoading: boolean;
 
   // Auth
   user: AuthUser | null;
@@ -156,6 +182,11 @@ interface AppState {
   removeCMSConfig: (id: string) => void;
   updateCMSConfig: (id: string, data: Partial<CMSConfig>) => void;
 
+  // GSC Analytics actions
+  setGSCSiloMetrics: (metrics: GSCSiloMetrics[]) => void;
+  setGSCSyncResult: (result: GSCSyncResult | null) => void;
+  setGSCSyncLoading: (loading: boolean) => void;
+
   // Project ID
   setSavedProjectId: (id: string | null) => void;
 
@@ -181,6 +212,9 @@ const initialState = {
   generatedArticles: [],
   bulkGeneratingProgress: null,
   cmsConfigs: [],
+  gscSiloMetrics: [],
+  gscSyncResult: null,
+  gscSyncLoading: false,
   user: null,
   token: null,
 };
@@ -238,6 +272,10 @@ export const useStore = create<AppState>()(
         cmsConfigs: state.cmsConfigs.map((c) => (c.id === id ? { ...c, ...data } : c)),
       })),
 
+      setGSCSiloMetrics: (gscSiloMetrics) => set({ gscSiloMetrics }),
+      setGSCSyncResult: (gscSyncResult) => set({ gscSyncResult }),
+      setGSCSyncLoading: (gscSyncLoading) => set({ gscSyncLoading }),
+
       setSavedProjectId: (id) => set({ savedProjectId: id }),
 
       setUser: (user) => set({ user }),
@@ -249,6 +287,7 @@ export const useStore = create<AppState>()(
         internalLinks: [], savedProjectId: null,
         keywordClusters: [], contentGaps: [], contentBrief: null,
         generatedArticles: [], bulkGeneratingProgress: null, cmsConfigs: [],
+        gscSiloMetrics: [], gscSyncResult: null, gscSyncLoading: false,
       }),
     }),
     {

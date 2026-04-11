@@ -34,6 +34,11 @@ interface MemDB {
     status: string | null;
     content: string | null;
     word_count: number | null;
+    gsc_clicks: number | null;
+    gsc_impressions: number | null;
+    gsc_position: number | null;
+    gsc_ctr: number | null;
+    gsc_last_synced: string | null;
   }>;
   internal_links: Array<{
     id: string;
@@ -101,6 +106,22 @@ async function ensureMigration(db: D1Database) {
       anchor TEXT NOT NULL,
       created_at TEXT DEFAULT (datetime('now'))
     )`).run();
+  } catch { /* already exists */ }
+  // GSC metrics columns
+  try {
+    await db.prepare('ALTER TABLE pages ADD COLUMN gsc_clicks INTEGER DEFAULT 0').run();
+  } catch { /* already exists */ }
+  try {
+    await db.prepare('ALTER TABLE pages ADD COLUMN gsc_impressions INTEGER DEFAULT 0').run();
+  } catch { /* already exists */ }
+  try {
+    await db.prepare('ALTER TABLE pages ADD COLUMN gsc_position REAL DEFAULT 0').run();
+  } catch { /* already exists */ }
+  try {
+    await db.prepare('ALTER TABLE pages ADD COLUMN gsc_ctr REAL DEFAULT 0').run();
+  } catch { /* already exists */ }
+  try {
+    await db.prepare('ALTER TABLE pages ADD COLUMN gsc_last_synced TEXT').run();
   } catch { /* already exists */ }
 }
 
@@ -251,11 +272,11 @@ export async function getPagesByProject(projectId: string) {
   return mem.pages.filter((p) => p.project_id === projectId);
 }
 
-export async function createPage(data: { id: string; project_id: string; silo_id?: string | null; title: string; slug: string; meta_description?: string; keywords?: string; type: string; parent_id?: string | null; status?: string; content?: string; word_count?: number }) {
+export async function createPage(data: { id: string; project_id: string; silo_id?: string | null; title: string; slug: string; meta_description?: string; keywords?: string; type: string; parent_id?: string | null; status?: string; content?: string; word_count?: number; gsc_clicks?: number; gsc_impressions?: number; gsc_position?: number; gsc_ctr?: number }) {
   if (isCloudflare()) {
     const db = getD1();
-    await db.prepare('INSERT OR REPLACE INTO pages (id, project_id, silo_id, title, slug, meta_description, keywords, type, parent_id, status, content, word_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(data.id, data.project_id, data.silo_id || null, data.title, data.slug, data.meta_description || null, data.keywords || null, data.type, data.parent_id || null, data.status || 'draft', data.content || null, data.word_count || null).run();
+    await db.prepare('INSERT OR REPLACE INTO pages (id, project_id, silo_id, title, slug, meta_description, keywords, type, parent_id, status, content, word_count, gsc_clicks, gsc_impressions, gsc_position, gsc_ctr) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(data.id, data.project_id, data.silo_id || null, data.title, data.slug, data.meta_description || null, data.keywords || null, data.type, data.parent_id || null, data.status || 'draft', data.content || null, data.word_count || null, data.gsc_clicks || 0, data.gsc_impressions || 0, data.gsc_position || 0, data.gsc_ctr || 0).run();
     return;
   }
   const mem = getMemDB();
@@ -274,10 +295,15 @@ export async function createPage(data: { id: string; project_id: string; silo_id
     status: data.status || 'draft',
     content: data.content || null,
     word_count: data.word_count || null,
+    gsc_clicks: data.gsc_clicks || 0,
+    gsc_impressions: data.gsc_impressions || 0,
+    gsc_position: data.gsc_position || 0,
+    gsc_ctr: data.gsc_ctr || 0,
+    gsc_last_synced: null,
   });
 }
 
-export async function updatePage(id: string, data: { title?: string; slug?: string; meta_description?: string; keywords?: string; type?: string; silo_id?: string | null; parent_id?: string | null; status?: string; content?: string; word_count?: number }) {
+export async function updatePage(id: string, data: { title?: string; slug?: string; meta_description?: string; keywords?: string; type?: string; silo_id?: string | null; parent_id?: string | null; status?: string; content?: string; word_count?: number; gsc_clicks?: number; gsc_impressions?: number; gsc_position?: number; gsc_ctr?: number; gsc_last_synced?: string }) {
   const fields: string[] = [];
   const values: (string | number | null)[] = [];
 
@@ -291,6 +317,11 @@ export async function updatePage(id: string, data: { title?: string; slug?: stri
   if (data.status !== undefined) { fields.push('status = ?'); values.push(data.status); }
   if (data.content !== undefined) { fields.push('content = ?'); values.push(data.content); }
   if (data.word_count !== undefined) { fields.push('word_count = ?'); values.push(data.word_count); }
+  if (data.gsc_clicks !== undefined) { fields.push('gsc_clicks = ?'); values.push(data.gsc_clicks); }
+  if (data.gsc_impressions !== undefined) { fields.push('gsc_impressions = ?'); values.push(data.gsc_impressions); }
+  if (data.gsc_position !== undefined) { fields.push('gsc_position = ?'); values.push(data.gsc_position); }
+  if (data.gsc_ctr !== undefined) { fields.push('gsc_ctr = ?'); values.push(data.gsc_ctr); }
+  if (data.gsc_last_synced !== undefined) { fields.push('gsc_last_synced = ?'); values.push(data.gsc_last_synced); }
 
   if (fields.length === 0) return null;
 
@@ -313,8 +344,80 @@ export async function updatePage(id: string, data: { title?: string; slug?: stri
     if (data.status !== undefined) page.status = data.status;
     if (data.content !== undefined) page.content = data.content;
     if (data.word_count !== undefined) page.word_count = data.word_count;
+    if (data.gsc_clicks !== undefined) page.gsc_clicks = data.gsc_clicks;
+    if (data.gsc_impressions !== undefined) page.gsc_impressions = data.gsc_impressions;
+    if (data.gsc_position !== undefined) page.gsc_position = data.gsc_position;
+    if (data.gsc_ctr !== undefined) page.gsc_ctr = data.gsc_ctr;
+    if (data.gsc_last_synced !== undefined) page.gsc_last_synced = data.gsc_last_synced;
   }
   return null;
+}
+
+// ===== GSC Analytics =====
+
+export interface GSCSiloMetrics {
+  silo_id: string;
+  silo_name: string;
+  total_clicks: number;
+  total_impressions: number;
+  avg_position: number;
+  avg_ctr: number;
+  page_count: number;
+  top_page: { title: string; clicks: number } | null;
+}
+
+export async function getGSCMetricsBySilo(projectId: string): Promise<GSCSiloMetrics[]> {
+  const pages = await getPagesByProject(projectId);
+  const silos = await getSilosByProject(projectId);
+
+  const siloMetrics: GSCSiloMetrics[] = [];
+
+  for (const silo of silos) {
+    const siloPages = pages.filter((p: Record<string, unknown>) => p.silo_id === silo.id);
+    const totalClicks = siloPages.reduce((sum: number, p: Record<string, unknown>) => sum + ((p.gsc_clicks as number) || 0), 0);
+    const totalImpressions = siloPages.reduce((sum: number, p: Record<string, unknown>) => sum + ((p.gsc_impressions as number) || 0), 0);
+    const avgPosition = siloPages.length > 0
+      ? siloPages.reduce((sum: number, p: Record<string, unknown>) => sum + ((p.gsc_position as number) || 0), 0) / siloPages.length
+      : 0;
+    const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+
+    // Find top performing page
+    const sorted = [...siloPages].sort((a: Record<string, unknown>, b: Record<string, unknown>) => ((b.gsc_clicks as number) || 0) - ((a.gsc_clicks as number) || 0));
+    const topPage = sorted.length > 0
+      ? { title: sorted[0].title as string, clicks: (sorted[0].gsc_clicks as number) || 0 }
+      : null;
+
+    siloMetrics.push({
+      silo_id: silo.id as string,
+      silo_name: silo.name as string,
+      total_clicks: totalClicks,
+      total_impressions: totalImpressions,
+      avg_position: Math.round(avgPosition * 10) / 10,
+      avg_ctr: Math.round(avgCtr * 100) / 100,
+      page_count: siloPages.length,
+      top_page: topPage,
+    });
+  }
+
+  return siloMetrics;
+}
+
+export async function updatePageGSCMetrics(pageId: string, metrics: { clicks: number; impressions: number; position: number; ctr: number }) {
+  if (isCloudflare()) {
+    const db = getD1();
+    await db.prepare('UPDATE pages SET gsc_clicks = ?, gsc_impressions = ?, gsc_position = ?, gsc_ctr = ?, gsc_last_synced = ? WHERE id = ?')
+      .bind(metrics.clicks, metrics.impressions, metrics.position, metrics.ctr, new Date().toISOString(), pageId).run();
+    return;
+  }
+  const mem = getMemDB();
+  const page = mem.pages.find((p) => p.id === pageId);
+  if (page) {
+    page.gsc_clicks = metrics.clicks;
+    page.gsc_impressions = metrics.impressions;
+    page.gsc_position = metrics.position;
+    page.gsc_ctr = metrics.ctr;
+    page.gsc_last_synced = new Date().toISOString();
+  }
 }
 
 export async function deletePage(id: string) {

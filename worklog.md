@@ -87,3 +87,34 @@ Stage Summary:
 - Interactive mind map canvas with health visualization
 - CMS push integration for WordPress and headless architectures
 - All TypeScript errors resolved, dev server running successfully
+
+---
+Task ID: 6
+Agent: Main
+Task: Implement P3/P4 Roadmap: Concurrency Manager, Edge URL Importer, GSC Analytics, PDF Export
+
+Work Log:
+- Created `/src/lib/concurrency.ts` — Concurrency Manager utility with processInBatches(), processSequentially(), retryWithBackoff(), and BATCH_SIZES constants
+- Created `/migrations/005_add_gsc_metrics.sql` — D1 migration adding gsc_clicks, gsc_impressions, gsc_position, gsc_ctr, gsc_last_synced columns to pages table
+- Updated `/src/lib/db.ts` — Added GSC columns to auto-migration, createPage, updatePage; added getGSCMetricsBySilo() and updatePageGSCMetrics() functions
+- Created `/src/lib/edge-scraper.ts` — Native Edge URL scraper using Cloudflare HTMLRewriter; extracts h1, h2, internal links, meta description; supports multi-page crawling with concurrency control
+- Created `/src/app/api/import-competitor/route.ts` — POST endpoint: scrape competitor → callAI() for silo mapping → save to D1; returns project_id for frontend routing
+- Created `/src/app/api/gsc-sync/route.ts` — OAuth-secured POST endpoint to fetch GSC API data and map it to D1 page URLs; aggregates by silo
+- Created `/src/app/api/gsc-auth/route.ts` — Google OAuth2 flow: GET initiates auth redirect, POST exchanges code for tokens
+- Created `/src/components/seo/GSCAnalyticsDashboard.tsx` — Full analytics dashboard with OAuth token input, sync controls, silo-level metrics table, top performing pages
+- Created `/src/components/seo/CompetitorImporter.tsx` — Import form with URL input, project name, crawl depth, language; success state with "Open in Silo Builder" CTA
+- Created `/src/components/seo/PDFReportExport.tsx` — Client-side PDF generation using html2pdf.js; branded report with cover, executive summary, silo health table, content distribution, GSC analytics, recommendations
+- Updated `/src/store/useStore.ts` — Added GSCSiloMetrics, GSCSyncResult interfaces; added gscSiloMetrics, gscSyncResult, gscSyncLoading state and actions
+- Updated `/src/components/seo/Sidebar.tsx` — Added GSC Analytics (step 12), Competitor Import (step 13), PDF Export (step 14) to SEO Tools section
+- Updated `/src/app/page.tsx` — Added routing for steps 12, 13, 14
+- Updated `/home/z/my-project/env.d.ts` — Added html2pdf.js module declaration and GSC env vars to CloudflareEnv
+- Updated `/home/z/my-project/wrangler.toml` — Added GSC secret configuration comments
+- Installed html2pdf.js package
+
+Stage Summary:
+- Module 1 (Edge URL Importer): Native fetch() + HTMLRewriter scraping, callAI() silo mapping, D1 persistence with concurrency control (batch size 5 for scraping, 3 for AI calls)
+- Module 2 (GSC Analytics): Full OAuth2 flow, GSC API sync, silo-level aggregation, analytics dashboard with sortable table
+- Module 3 (PDF Export): Client-side branded PDF with cover, metrics, silo health table, content distribution, GSC data, recommendations
+- Concurrency Manager: processInBatches() with configurable batch sizes, retryWithBackoff() with exponential backoff, 200ms cooldown between batches
+- All 3 new views wired into sidebar navigation (steps 12, 13, 14)
+- Zero ESLint errors in all new/modified files

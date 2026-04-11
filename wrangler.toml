@@ -3,6 +3,12 @@ compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = ".vercel/output/static"
 
+# GSC OAuth credentials (set via: wrangler pages secret put GSC_CLIENT_ID)
+# [vars] section is for non-secret config only
+# Secrets (GSC_CLIENT_ID, GSC_CLIENT_SECRET) must be set via:
+#   npx wrangler pages secret put GSC_CLIENT_ID
+#   npx wrangler pages secret put GSC_CLIENT_SECRET
+
 [[d1_databases]]
 binding = "DB"
 database_name = "siloforge-db"

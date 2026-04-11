@@ -5,6 +5,7 @@ import { useStore } from '@/store/useStore';
 import {
   Check, Zap, Menu, X, Shield, Key, LogOut, User,
   BarChart3, Calendar, FileText, Network, Link2, Brain, PenTool,
+  Globe, TrendingUp, FileDown,
 } from 'lucide-react';
 
 const workflowSteps = [
@@ -23,6 +24,9 @@ const toolSteps = [
   { num: 9, label: 'Keyword Intel', icon: Brain, color: 'purple' },
   { num: 10, label: 'Content Briefs', icon: PenTool, color: 'amber' },
   { num: 11, label: 'Article Writer', icon: FileText, color: 'emerald' },
+  { num: 12, label: 'GSC Analytics', icon: TrendingUp, color: 'blue' },
+  { num: 13, label: 'Competitor Import', icon: Globe, color: 'amber' },
+  { num: 14, label: 'PDF Export', icon: FileDown, color: 'purple' },
 ];
 
 export default function Sidebar() {
@@ -45,6 +49,9 @@ export default function Sidebar() {
     if (step === 9) return !!project; // Keyword Intel
     if (step === 10) return !!project && pages.length > 0; // Content Briefs
     if (step === 11) return !!project && pages.length > 0; // Article Writer
+    if (step === 12) return !!project; // GSC Analytics
+    if (step === 13) return true; // Competitor Import (always accessible)
+    if (step === 14) return !!project && pages.length > 0; // PDF Export
     if (step === 99) return true;
     return false;
   };
@@ -149,6 +156,7 @@ export default function Sidebar() {
               red: { activeBg: 'bg-red-500/15', activeText: 'text-red-300', activeBorder: 'border-red-500/30' },
               purple: { activeBg: 'bg-purple-500/15', activeText: 'text-purple-300', activeBorder: 'border-purple-500/30' },
               amber: { activeBg: 'bg-amber-500/15', activeText: 'text-amber-300', activeBorder: 'border-amber-500/30' },
+              blue: { activeBg: 'bg-blue-500/15', activeText: 'text-blue-300', activeBorder: 'border-blue-500/30' },
             };const color = colorMap[step.color] || colorMap.emerald;
 
             return (
