@@ -81,10 +81,15 @@ function getD1(): D1Database {
 }
 
 // Auto-migrate: ensure silos table has keywords column, pages has status column
-let _migrationDone = false;
+let _migrationPromise: Promise<void> | null = null;
 async function ensureMigration(db: D1Database) {
-  if (_migrationDone) return;
-  _migrationDone = true;
+  if (!_migrationPromise) {
+    _migrationPromise = runMigrations(db);
+  }
+  await _migrationPromise;
+}
+
+async function runMigrations(db: D1Database) {
   try {
     await db.prepare('ALTER TABLE silos ADD COLUMN keywords TEXT').run();
   } catch { /* already exists */ }

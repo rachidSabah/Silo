@@ -7,7 +7,7 @@ import TagInput from './TagInput';
 import { Globe, Tag, FileText, Languages, ArrowRight, Sparkles } from 'lucide-react';
 
 export default function Step1ProjectSetup() {
-  const { project, setProject, setStep, silos, pages, setSavedProjectId, token } = useStore();
+  const { project, setProject, setStep, silos, pages, setSilos, setPages, setSavedProjectId, token } = useStore();
   const [name, setName] = useState(project?.name || '');
   const [domain, setDomain] = useState(project?.domain || '');
   const [language, setLanguage] = useState(project?.language || 'en');
@@ -76,6 +76,9 @@ export default function Step1ProjectSetup() {
   const confirmAndProceed = (cleanDomain?: string) => {
     const domainToUse = cleanDomain || domain.trim().replace(/^https?:\/\//, '');
     const projectId = project?.id || uuidv4();
+    // Clear old data when resetting
+    setSilos([]);
+    setPages([]);
     setProject({
       id: projectId,
       name: name.trim(),

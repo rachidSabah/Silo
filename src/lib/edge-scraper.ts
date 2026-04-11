@@ -50,6 +50,9 @@ export async function scrapeUrl(targetUrl: string): Promise<ScrapedPageData> {
 
     // Use Cloudflare HTMLRewriter to stream-parse the HTML
     // This is memory-efficient — it doesn't load the entire DOM into memory
+    // Accumulators for multi-chunk text elements (H1, H2 can span multiple text nodes)
+    let currentH1 = '';
+    let currentH2 = '';
     const rewriter = new HTMLRewriter()
       .on('title', {
         text(element: { text: string }) {
@@ -57,13 +60,21 @@ export async function scrapeUrl(targetUrl: string): Promise<ScrapedPageData> {
         },
       })
       .on('h1', {
-        text(element: { text: string }) {
-          result.h1Tags.push(element.text.trim());
+        text(element: { text: string; lastInTextNode?: boolean }) {
+          currentH1 += element.text;
+          if (element.lastInTextNode) {
+            result.h1Tags.push(currentH1.trim());
+            currentH1 = '';
+          }
         },
       })
       .on('h2', {
-        text(element: { text: string }) {
-          result.h2Tags.push(element.text.trim());
+        text(element: { text: string; lastInTextNode?: boolean }) {
+          currentH2 += element.text;
+          if (element.lastInTextNode) {
+            result.h2Tags.push(currentH2.trim());
+            currentH2 = '';
+          }
         },
       })
       .on('meta[name="description"]', {
@@ -85,7 +96,8 @@ export async function scrapeUrl(targetUrl: string): Promise<ScrapedPageData> {
             const linkIndex = result.internalLinks.length - 1;
             element.on('text', (text: { text: string; lastInTextNode: boolean }) => {
               if (result.internalLinks[linkIndex]) {
-                result.internalLinks[linkIndex].anchor += text.text.trim();
+                // Don't trim individual chunks — only trim final result to preserve spaces
+                result.internalLinks[linkIndex].anchor += text.text;
               }
             });
           }
@@ -124,7 +136,12 @@ export async function scrapeCompetitorSite(
   maxPages: number = 50,
   crawlConcurrency: number = 5
 ): Promise<ScrapedSiteStructure> {
-  const urlObj = new URL(targetUrl);
+  let urlObj: URL;
+  try {
+    urlObj = new URL(targetUrl);
+  } catch {
+    throw new Error(`Invalid URL: ${targetUrl}`);
+  }
   const domain = urlObj.hostname;
 
   // Phase 1: Scrape the homepage

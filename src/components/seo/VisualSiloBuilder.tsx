@@ -69,15 +69,13 @@ export default function VisualSiloBuilder() {
   const allBleedAlerts = healthResults.flatMap(hr => hr.bleedLinks);
 
   // Cannibalization per silo
-  const cannibalizationMap = useCallback(() => {
+  const cannibalization = useMemo(() => {
     const map: Record<string, Array<{ keyword: string; pages: Array<{ id: string; title: string }> }>> = {};
     for (const silo of silos) {
       map[silo.id] = detectCannibalization(pages, silo.id);
     }
     return map;
   }, [silos, pages]);
-
-  const cannibalization = cannibalizationMap();
 
   // Drag and drop handlers
   const handleDragStart = (pageId: string) => {
