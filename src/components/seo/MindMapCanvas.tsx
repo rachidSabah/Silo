@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { useStore, type Silo, type Page } from '@/store/useStore';
 import {
   calculateSiloHealth, getHealthDot, getHealthColor, detectCannibalization,
@@ -40,42 +40,26 @@ export default function MindMapCanvas() {
   const [nodePositions, setNodePositions] = useState<NodePosition[]>([]);
   const [showCannibalization, setShowCannibalization] = useState(true);
 
-  // Auto-layout: Arrange silos in a circle around the project, pages under their silos
-  const autoLayout = useCallback(() => {
-    if (!project || silos.length === 0) return;
+  // Compute auto-layout positions
+  const computedLayout = useMemo(() => {
+    if (!project || silos.length === 0) return [];
 
     const positions: NodePosition[] = [];
     const centerX = 600;
     const centerY = 400;
     const siloRadius = 280;
 
-    // Project node at center
     positions.push({
-      id: project.id,
-      x: centerX - 80,
-      y: centerY - 25,
-      width: 160,
-      height: 50,
-      type: 'project',
+      id: project.id, x: centerX - 80, y: centerY - 25, width: 160, height: 50, type: 'project',
     });
 
-    // Silos arranged in a circle around project
     silos.forEach((silo, i) => {
       const angle = (2 * Math.PI * i) / silos.length - Math.PI / 2;
       const sx = centerX + Math.cos(angle) * siloRadius - 80;
       const sy = centerY + Math.sin(angle) * siloRadius - 25;
 
-      positions.push({
-        id: silo.id,
-        x: sx,
-        y: sy,
-        width: 160,
-        height: 50,
-        type: 'silo',
-        siloColor: siloColors[i % siloColors.length],
-      });
+      positions.push({ id: silo.id, x: sx, y: sy, width: 160, height: 50, type: 'silo', siloColor: siloColors[i % siloColors.length] });
 
-      // Pages arranged below their silo
       const siloPages = pages.filter(p => p.siloId === silo.id);
       const pillar = siloPages.find(p => p.type === 'pillar');
       const clusters = siloPages.filter(p => p.type === 'cluster');
@@ -83,72 +67,39 @@ export default function MindMapCanvas() {
       const otherPages = siloPages.filter(p => !['pillar', 'cluster', 'blog'].includes(p.type));
 
       let yOffset = 0;
-
-      // Pillar page directly below silo
       if (pillar) {
-        positions.push({
-          id: pillar.id,
-          x: sx + 20,
-          y: sy + 60 + yOffset,
-          width: 120,
-          height: 36,
-          type: 'page',
-          siloColor: siloColors[i % siloColors.length],
-        });
+        positions.push({ id: pillar.id, x: sx + 20, y: sy + 60 + yOffset, width: 120, height: 36, type: 'page', siloColor: siloColors[i % siloColors.length] });
         yOffset += 46;
       }
-
-      // Cluster pages spread out
       clusters.forEach((page, j) => {
         const offset = (j - (clusters.length - 1) / 2) * 80;
-        positions.push({
-          id: page.id,
-          x: sx + offset - 20,
-          y: sy + 60 + yOffset,
-          width: 110,
-          height: 32,
-          type: 'page',
-          siloColor: siloColors[i % siloColors.length],
-        });
+        positions.push({ id: page.id, x: sx + offset - 20, y: sy + 60 + yOffset, width: 110, height: 32, type: 'page', siloColor: siloColors[i % siloColors.length] });
       });
       if (clusters.length > 0) yOffset += 42;
-
-      // Blog pages
       blogs.forEach((page, j) => {
         const offset = (j - (blogs.length - 1) / 2) * 80;
-        positions.push({
-          id: page.id,
-          x: sx + offset - 20,
-          y: sy + 60 + yOffset,
-          width: 110,
-          height: 32,
-          type: 'page',
-          siloColor: siloColors[i % siloColors.length],
-        });
+        positions.push({ id: page.id, x: sx + offset - 20, y: sy + 60 + yOffset, width: 110, height: 32, type: 'page', siloColor: siloColors[i % siloColors.length] });
       });
       if (blogs.length > 0) yOffset += 42;
-
-      // Other pages
       otherPages.forEach((page, j) => {
         const offset = (j - (otherPages.length - 1) / 2) * 80;
-        positions.push({
-          id: page.id,
-          x: sx + offset - 20,
-          y: sy + 60 + yOffset,
-          width: 110,
-          height: 32,
-          type: 'page',
-          siloColor: siloColors[i % siloColors.length],
-        });
+        positions.push({ id: page.id, x: sx + offset - 20, y: sy + 60 + yOffset, width: 110, height: 32, type: 'page', siloColor: siloColors[i % siloColors.length] });
       });
     });
 
-    setNodePositions(positions);
+    return positions;
   }, [project, silos, pages]);
 
+  // Sync computed layout into state (allows manual drag to override)
   useEffect(() => {
-    autoLayout();
-  }, [autoLayout]);
+    setNodePositions(computedLayout);
+  }, [computedLayout]);
+
+  const autoLayout = useCallback(() => {
+    setNodePositions(computedLayout);
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, [computedLayout]);
 
   // Health results
   const healthResults = useMemo(() =>
@@ -167,8 +118,8 @@ export default function MindMapCanvas() {
     return map;
   }, [silos, pages]);
 
-  // Get node position
-  const getNode = (id: string) => nodePositions.find(n => n.id === id);
+  // Get node position helper (memoized)
+  const getNode = useCallback((id: string) => nodePositions.find(n => n.id === id), [nodePositions]);
 
   // Draw connections between nodes
   const connections = useMemo(() => {
@@ -176,10 +127,12 @@ export default function MindMapCanvas() {
 
     if (!project) return lines;
 
+    const getNodePos = (id: string) => nodePositions.find(n => n.id === id);
+
     // Project → Silo connections
-    const projNode = getNode(project.id);
+    const projNode = getNodePos(project.id);
     silos.forEach((silo, i) => {
-      const siloNode = getNode(silo.id);
+      const siloNode = getNodePos(silo.id);
       if (projNode && siloNode) {
         lines.push({
           from: { x: projNode.x + projNode.width / 2, y: projNode.y + projNode.height },
@@ -189,12 +142,11 @@ export default function MindMapCanvas() {
         });
       }
 
-      // Silo → Page connections
       const pillar = pages.find(p => p.siloId === silo.id && p.type === 'pillar');
       const siloPages = pages.filter(p => p.siloId === silo.id);
 
       siloPages.forEach(page => {
-        const pageNode = getNode(page.id);
+        const pageNode = getNodePos(page.id);
         if (siloNode && pageNode) {
           if (page.type === 'pillar') {
             lines.push({
@@ -204,7 +156,7 @@ export default function MindMapCanvas() {
               type: 'silo-page',
             });
           } else if (pillar) {
-            const pillarNode = getNode(pillar.id);
+            const pillarNode = getNodePos(pillar.id);
             if (pillarNode) {
               lines.push({
                 from: { x: pillarNode.x + pillarNode.width / 2, y: pillarNode.y + pillarNode.height },
@@ -220,8 +172,8 @@ export default function MindMapCanvas() {
 
     // Internal links (cross-silo = bleed)
     internalLinks.forEach(link => {
-      const fromNode = getNode(link.fromPageId);
-      const toNode = getNode(link.toPageId);
+      const fromNode = getNodePos(link.fromPageId);
+      const toNode = getNodePos(link.toPageId);
       const fromPage = pages.find(p => p.id === link.fromPageId);
       const toPage = pages.find(p => p.id === link.toPageId);
       if (fromNode && toNode && fromPage && toPage) {
@@ -292,8 +244,6 @@ export default function MindMapCanvas() {
 
   // Reset view
   const resetView = () => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
     autoLayout();
   };
 

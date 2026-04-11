@@ -77,7 +77,7 @@ async function handleRequest(req: NextRequest) {
       case path === 'settings' && m === 'POST': { const d = await body(req); await upsertAISetting(d); return json({ ok: true }); }
       case path === 'settings' && m === 'DELETE': await deleteAISetting(url.searchParams.get('id') || ''); return json({ ok: true });
       // AI
-      case path === 'ai/expand-keywords' && m === 'POST': { const d = await body(req); return json(await expandKeywords(d.keywords, d.niche, d.language, req)); }
+      case path === 'ai/expand-keywords' && m === 'POST': { const d = await body(req); const result = await expandKeywords(d.seedKeywords || d.keywords, d.niche, d.language, req); return json({ keywords: result }); }
       case path === 'ai/generate-silos' && m === 'POST': { const d = await body(req); return json(await generateSilos(d.niche, d.keywords, d.language, req)); }
       case path === 'ai/generate-pages' && m === 'POST': { const d = await body(req); return json(await generatePages(d.silos, d.niche, d.language, req)); }
       case path === 'ai/keyword-cluster' && m === 'POST': { const d = await body(req); return json(await groupKeywords(d.keywords, d.niche, req)); }
@@ -154,5 +154,6 @@ async function handleGscSync(req: NextRequest) {
 }
 
 function getGSCE(name: string): string | null {
-  try { const { env } = require('@cloudflare/next-on-pages').getRequestContext(); return env?.[name] || process.env[name] || null; } catch { return process.env[name] || null; }
+  try { // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { env } = require('@cloudflare/next-on-pages').getRequestContext(); return env?.[name] || process.env[name] || null; } catch { return process.env[name] || null; }
 }

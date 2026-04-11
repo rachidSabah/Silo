@@ -132,19 +132,21 @@ function parseJSON<T>(text: string, fallback: T): T {
 }
 
 export async function expandKeywords(seedKeywords: string[], niche: string, language: string, req?: NextRequest): Promise<string[]> {
+  const safeKeywords = Array.isArray(seedKeywords) ? seedKeywords : [niche || 'seo'].filter(Boolean);
   const content = await callAI([
     { role: 'system', content: `You are an SEO keyword research expert. Given seed keywords, expand them into a comprehensive list of related keywords and long-tail variations. Return ONLY a JSON array of strings, no other text. Language: ${language}.` },
-    { role: 'user', content: `Expand these seed keywords for the niche "${niche}": ${seedKeywords.join(', ')}. Return 30-50 related keywords as a JSON array.` },
+    { role: 'user', content: `Expand these seed keywords for the niche "${niche}": ${safeKeywords.join(', ')}. Return 30-50 related keywords as a JSON array.` },
   ], req);
-  return parseJSON(content, seedKeywords);
+  return parseJSON(content, safeKeywords);
 }
 
 export async function generateSilos(niche: string, keywords: string[], language: string, req?: NextRequest): Promise<{ name: string; keywords: string[] }[]> {
+  const safeKeywords = Array.isArray(keywords) ? keywords : [niche || 'seo'].filter(Boolean);
   const content = await callAI([
     { role: 'system', content: `You are an SEO architect specializing in website silo structure. Given a niche and keywords, suggest optimal content silo categories. Each silo should group related topics together. Return ONLY a JSON array of objects with "name" (silo name) and "keywords" (array of keywords for that silo). No other text. Language: ${language}.` },
-    { role: 'user', content: `Generate 4-8 silo categories for the niche "${niche}" with these keywords: ${keywords.join(', ')}. Return as JSON array.` },
+    { role: 'user', content: `Generate 4-8 silo categories for the niche "${niche}" with these keywords: ${safeKeywords.join(', ')}. Return as JSON array.` },
   ], req);
-  return parseJSON(content, [{ name: niche, keywords }]);
+  return parseJSON(content, [{ name: niche, keywords: safeKeywords }]);
 }
 
 export async function generatePages(

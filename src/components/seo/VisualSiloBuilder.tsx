@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useStore, type Silo, type Page } from '@/store/useStore';
 import {
   calculateSiloHealth,
@@ -45,18 +45,22 @@ export default function VisualSiloBuilder() {
     if (!project) setStep(1);
   }, [project, setStep]);
 
-  // Calculate health for each silo
-  useEffect(() => {
-    if (!silos.length) { setHealthResults([]); return; }
-    const results = silos.map(silo =>
+  // Calculate health for each silo using useMemo to avoid set-state-in-effect
+  const computedHealthResults = useMemo(() =>
+    silos.map(silo =>
       calculateSiloHealth(silo, pages, internalLinks.map(l => ({
         fromPageId: l.fromPageId,
         toPageId: l.toPageId,
         anchor: l.anchor,
       })))
-    );
-    setHealthResults(results);
-  }, [silos, pages, internalLinks]);
+    ),
+    [silos, pages, internalLinks]
+  );
+
+  // Keep state in sync for components that need it
+  useEffect(() => {
+    setHealthResults(computedHealthResults);
+  }, [computedHealthResults]);
 
   // Orphaned pages (not assigned to any silo)
   const orphanedPages = pages.filter(p => !p.siloId);
