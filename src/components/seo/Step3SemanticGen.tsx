@@ -5,7 +5,7 @@ import { useStore } from '@/store/useStore';
 import { v4 as uuidv4 } from 'uuid';
 import PageTypeBadge from './PageTypeBadge';
 import VisualTree from './VisualTree';
-import { Sparkles, ArrowLeft, ArrowRight, Loader2, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { Sparkles, ArrowLeft, ArrowRight, Loader2, RefreshCw, ChevronDown, ChevronRight, Download, FileText } from 'lucide-react';
 
 // Client-side emergency page extractor — tries to find pages in any AI response structure
 function clientSideExtractPages(
@@ -295,6 +295,24 @@ export default function Step3SemanticGen() {
     setExpandedSilos((prev) => ({ ...prev, [siloId]: !prev[siloId] }));
   };
 
+  // Download page structure as CSV
+  const handleDownloadPageStructure = () => {
+    if (pages.length === 0) return;
+    const header = 'Title,Slug,Type,Meta Description,Keywords,Silo,Status';
+    const rows = pages.map(p => {
+      const silo = silos.find(s => s.id === p.siloId);
+      return `"${p.title}","/${p.slug}","${p.type}","${p.metaDescription || ''}","${p.keywords.join('; ')}","${silo?.name || 'Unassigned'}","${p.status}"`;
+    });
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${project?.name || 'siloforge'}-page-structure.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const groupedPages = silos.map((silo) => ({
     silo,
     pages: pages.filter((p) => p.siloId === silo.id),
@@ -357,14 +375,23 @@ export default function Step3SemanticGen() {
               )}
             </button>
             {pages.length > 0 && (
-              <button
-                onClick={handleGeneratePages}
-                disabled={generating}
-                className="flex items-center gap-2 px-4 py-2.5 bg-slate-700/50 text-slate-300 border border-slate-600 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors"
-              >
-                <RefreshCw size={16} />
-                Regenerate
-              </button>
+              <>
+                <button
+                  onClick={handleGeneratePages}
+                  disabled={generating}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-slate-700/50 text-slate-300 border border-slate-600 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors"
+                >
+                  <RefreshCw size={16} />
+                  Regenerate
+                </button>
+                <button
+                  onClick={handleDownloadPageStructure}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-lg text-sm font-medium hover:bg-emerald-500/30 transition-colors"
+                >
+                  <Download size={16} />
+                  Download CSV
+                </button>
+              </>
             )}
           </div>
 

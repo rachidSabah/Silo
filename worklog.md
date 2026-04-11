@@ -67,3 +67,31 @@ Stage Summary:
 - The niche name is injected throughout the prompts to keep the AI focused
 - Seed keywords are now passed from the project to the page generation for additional context
 - Each prompt includes explicit rules and examples that prevent generic content generation
+
+---
+Task ID: 3
+Agent: main
+Task: Fix article content styling (white bg, transparent text) and add download options
+
+Work Log:
+- Identified root cause: Article content rendered inside `bg-white prose prose-slate` container, but @tailwindcss/typography plugin is NOT installed, so `prose` classes don't work, causing text to be invisible/transparent on white background
+- Added comprehensive `.article-content` CSS class in globals.css with full dark-mode styling for all HTML elements (h1-h4, p, ul, ol, li, a, strong, blockquote, code, pre, table, img, hr, figure, figcaption)
+- Changed article content container from `bg-white prose prose-slate` to `article-content bg-slate-900 border border-slate-700` for dark theme consistency
+- Enhanced `handleExportArticle` to support both HTML and Markdown formats:
+  - HTML exports now include embedded dark-mode CSS styles for standalone viewing
+  - Added `htmlToMarkdown()` function for HTML-to-Markdown conversion
+- Added `handleDownloadAllPages` function for bulk download (HTML or Markdown)
+- Added download UI elements:
+  - Article detail view: dropdown with "Download as HTML" and "Download as Markdown" options
+  - Articles tab list: "Download All Pages" dropdown button with HTML/Markdown options
+  - Individual article cards: quick download icon button
+  - Step3SemanticGen: "Download CSV" button for page structure export
+- Updated Step3SemanticGen to import Download and FileText icons
+- All lint checks pass
+
+Stage Summary:
+- Article content is now properly styled with dark-mode colors (slate-900 background, light text)
+- Download options available in both HTML and Markdown formats
+- Bulk download combines all articles into one file
+- Step3 page structure can be downloaded as CSV
+- All exports include proper styling for offline reading

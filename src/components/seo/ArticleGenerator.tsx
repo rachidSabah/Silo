@@ -257,17 +257,187 @@ export default function ArticleGenerator() {
     setCmsForm({ type: 'wordpress', name: '', url: '', apiKey: '', username: '', password: '' });
   };
 
-  // Export article as HTML
-  const handleExportArticle = (pageId: string) => {
+  // Export article as HTML (standalone file with embedded styles)
+  const handleExportArticle = (pageId: string, format: 'html' | 'md' = 'html') => {
     const page = pages.find(p => p.id === pageId);
     if (!page?.content) return;
-    const blob = new Blob([page.content], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${page.slug}.html`;
-    a.click();
-    URL.revokeObjectURL(url);
+
+    if (format === 'md') {
+      // Convert HTML to simple Markdown
+      const mdContent = htmlToMarkdown(page.content, page.title, page.metaDescription);
+      const blob = new Blob([mdContent], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${page.slug}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      // Standalone HTML with embedded dark-mode styles
+      const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="${page.metaDescription || ''}">
+  <title>${page.title}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; line-height: 1.75; max-width: 800px; margin: 0 auto; padding: 2rem; }
+    h1 { font-size: 2rem; font-weight: 700; color: #f8fafc; margin: 2rem 0 1rem; }
+    h2 { font-size: 1.5rem; font-weight: 700; color: #f1f5f9; margin: 1.75rem 0 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #334155; }
+    h3 { font-size: 1.25rem; font-weight: 600; color: #e2e8f0; margin: 1.5rem 0 0.625rem; }
+    p { margin-bottom: 1rem; color: #cbd5e1; }
+    ul, ol { margin-bottom: 1rem; padding-left: 1.5rem; color: #cbd5e1; }
+    li { margin-bottom: 0.375rem; }
+    a { color: #60a5fa; text-decoration: underline; }
+    strong { color: #f1f5f9; font-weight: 600; }
+    blockquote { border-left: 3px solid #3b82f6; padding: 0.75rem 1rem; margin: 1rem 0; background: rgba(59,130,246,0.08); border-radius: 0 0.5rem 0.5rem 0; color: #94a3b8; }
+    code { background: #1e293b; color: #e879f9; padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.875em; }
+    pre { background: #020617; border: 1px solid #334155; border-radius: 0.5rem; padding: 1rem; margin: 1rem 0; overflow-x: auto; }
+    pre code { background: transparent; color: #e2e8f0; padding: 0; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    th { background: #1e293b; color: #f1f5f9; font-weight: 600; padding: 0.625rem 0.75rem; text-align: left; border: 1px solid #334155; }
+    td { padding: 0.5rem 0.75rem; border: 1px solid #334155; color: #cbd5e1; }
+    img { max-width: 100%; height: auto; border-radius: 0.5rem; margin: 1rem 0; }
+    hr { border-color: #334155; margin: 1.5rem 0; }
+  </style>
+</head>
+<body>
+${page.content}
+</body>
+</html>`;
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${page.slug}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  // Convert HTML to simple Markdown
+  const htmlToMarkdown = (html: string, title: string, metaDesc: string): string => {
+    let md = `# ${title}\n\n`;
+    if (metaDesc) md += `> ${metaDesc}\n\n`;
+    md += '---\n\n';
+
+    let text = html;
+    // Headers
+    text = text.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1\n\n');
+    text = text.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1\n\n');
+    text = text.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1\n\n');
+    text = text.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '#### $1\n\n');
+    // Bold/italic
+    text = text.replace(/<(strong|b)>(.*?)<\/(strong|b)>/gi, '**$2**');
+    text = text.replace(/<(em|i)>(.*?)<\/(em|i)>/gi, '*$2*');
+    // Links
+    text = text.replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)');
+    // Lists
+    text = text.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n');
+    text = text.replace(/<\/?[uo]l[^>]*>/gi, '\n');
+    // Blockquotes
+    text = text.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gis, (_, content) => {
+      return content.split('\n').map((l: string) => `> ${l}`).join('\n') + '\n\n';
+    });
+    // Code blocks
+    text = text.replace(/<pre[^>]*><code[^>]*>(.*?)<\/code><\/pre>/gis, '```\n$1\n```\n\n');
+    text = text.replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`');
+    // Paragraphs
+    text = text.replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n\n');
+    // Line breaks
+    text = text.replace(/<br\s*\/?>/gi, '\n');
+    // Horizontal rules
+    text = text.replace(/<hr[^>]*>/gi, '---\n\n');
+    // Remove remaining tags
+    text = text.replace(/<[^>]+>/g, '');
+    // Decode HTML entities
+    text = text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+    // Clean up whitespace
+    text = text.replace(/\n{3,}/g, '\n\n').trim();
+
+    return md + text;
+  };
+
+  // Download all generated pages as a ZIP-like collection of HTML files
+  const handleDownloadAllPages = (format: 'html' | 'md' = 'html') => {
+    const pagesWithContent = pages.filter(p => p.content && p.content.length > 50);
+    if (pagesWithContent.length === 0) return;
+
+    if (format === 'md') {
+      // Download all as one combined Markdown file
+      let combinedMd = `# ${project?.name || 'SiloForge'} — All Generated Pages\n\n`;
+      combinedMd += `Generated on ${new Date().toLocaleDateString()}\n\n---\n\n`;
+      for (const page of pagesWithContent) {
+        const silo = silos.find(s => s.id === page.siloId);
+        combinedMd += htmlToMarkdown(page.content, page.title, page.metaDescription);
+        combinedMd += `\n\n---\n\n*Page: ${page.title} | Silo: ${silo?.name || 'Unassigned'} | Type: ${page.type} | Status: ${page.status}*\n\n---\n\n`;
+      }
+      const blob = new Blob([combinedMd], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${project?.name || 'siloforge'}-all-pages.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      // Download all as one combined HTML file
+      const allContent = pagesWithContent.map(page => {
+        const silo = silos.find(s => s.id === page.siloId);
+        return `
+<div style="margin-bottom: 3rem; padding-bottom: 2rem; border-bottom: 2px solid #334155;">
+  <div style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: #1e293b; border-radius: 0.5rem;">
+    <span style="display: inline-block; padding: 0.125rem 0.5rem; background: #3b82f6; color: white; border-radius: 0.25rem; font-size: 0.75rem; margin-right: 0.5rem;">${page.type}</span>
+    <span style="color: #94a3b8; font-size: 0.8125rem;">${silo?.name || 'Unassigned'}</span>
+  </div>
+  ${page.content}
+</div>`;
+      }).join('\n');
+
+      const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${project?.name || 'SiloForge'} — All Generated Pages</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; line-height: 1.75; max-width: 800px; margin: 0 auto; padding: 2rem; }
+    h1 { font-size: 2rem; font-weight: 700; color: #f8fafc; margin: 2rem 0 1rem; }
+    h2 { font-size: 1.5rem; font-weight: 700; color: #f1f5f9; margin: 1.75rem 0 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #334155; }
+    h3 { font-size: 1.25rem; font-weight: 600; color: #e2e8f0; margin: 1.5rem 0 0.625rem; }
+    p { margin-bottom: 1rem; color: #cbd5e1; }
+    ul, ol { margin-bottom: 1rem; padding-left: 1.5rem; color: #cbd5e1; }
+    li { margin-bottom: 0.375rem; }
+    a { color: #60a5fa; text-decoration: underline; }
+    strong { color: #f1f5f9; font-weight: 600; }
+    blockquote { border-left: 3px solid #3b82f6; padding: 0.75rem 1rem; margin: 1rem 0; background: rgba(59,130,246,0.08); border-radius: 0 0.5rem 0.5rem 0; color: #94a3b8; }
+    code { background: #1e293b; color: #e879f9; padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.875em; }
+    pre { background: #020617; border: 1px solid #334155; border-radius: 0.5rem; padding: 1rem; margin: 1rem 0; overflow-x: auto; }
+    pre code { background: transparent; color: #e2e8f0; padding: 0; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    th { background: #1e293b; color: #f1f5f9; font-weight: 600; padding: 0.625rem 0.75rem; text-align: left; border: 1px solid #334155; }
+    td { padding: 0.5rem 0.75rem; border: 1px solid #334155; color: #cbd5e1; }
+    img { max-width: 100%; height: auto; border-radius: 0.5rem; margin: 1rem 0; }
+    hr { border-color: #334155; margin: 1.5rem 0; }
+  </style>
+</head>
+<body>
+  <h1>${project?.name || 'SiloForge'} — All Generated Pages</h1>
+  <p style="color: #64748b;">Generated on ${new Date().toLocaleDateString()} | ${pagesWithContent.length} articles | ${pagesWithContent.reduce((s, p) => s + (p.wordCount || 0), 0).toLocaleString()} total words</p>
+  <hr>
+${allContent}
+</body>
+</html>`;
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${project?.name || 'siloforge'}-all-pages.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   };
 
   if (!project) return null;
@@ -515,7 +685,7 @@ export default function ArticleGenerator() {
                       <p className="text-slate-500 text-xs">{silo?.name} — {page.wordCount?.toLocaleString() || 0} words</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <button
                       onClick={() => setEditingContent(isEditing ? null : page.content)}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
@@ -525,13 +695,31 @@ export default function ArticleGenerator() {
                       <Edit3 size={12} />
                       {isEditing ? 'Editing' : 'Edit'}
                     </button>
-                    <button
-                      onClick={() => handleExportArticle(page.id)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 text-slate-300 rounded-lg text-xs hover:bg-slate-600"
-                    >
-                      <Download size={12} />
-                      Export HTML
-                    </button>
+                    <div className="relative group">
+                      <button
+                        onClick={() => handleExportArticle(page.id, 'html')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 text-slate-300 rounded-lg text-xs hover:bg-slate-600"
+                      >
+                        <Download size={12} />
+                        Download
+                      </button>
+                      <div className="absolute right-0 top-full mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-10 hidden group-hover:block min-w-[140px]">
+                        <button
+                          onClick={() => handleExportArticle(page.id, 'html')}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-slate-300 hover:bg-slate-700 text-xs text-left transition-colors"
+                        >
+                          <FileText size={12} />
+                          Download as HTML
+                        </button>
+                        <button
+                          onClick={() => handleExportArticle(page.id, 'md')}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-slate-300 hover:bg-slate-700 text-xs text-left transition-colors"
+                        >
+                          <BookOpen size={12} />
+                          Download as Markdown
+                        </button>
+                      </div>
+                    </div>
                     {cmsConfigs.length > 0 && (
                       <button
                         onClick={() => setActiveTab('cms')}
@@ -599,14 +787,48 @@ export default function ArticleGenerator() {
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-white rounded-xl p-6 md:p-8 prose prose-slate max-w-none">
+                  <div className="article-content bg-slate-900 border border-slate-700 rounded-xl p-6 md:p-8">
                     <div dangerouslySetInnerHTML={{ __html: sanitizeHTML(page.content) }} />
                   </div>
                 )}
               </div>
             );
           })() : (
-            <div className="space-y-3">
+            <div>
+              {/* Download All Button */}
+              {pages.filter(p => p.content && p.content.length > 50).length > 0 && (
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="relative group">
+                    <button
+                      onClick={() => handleDownloadAllPages('html')}
+                      className="flex items-center gap-2 px-4 py-2 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-lg text-sm font-medium hover:bg-emerald-500/30 transition-colors"
+                    >
+                      <Download size={16} />
+                      Download All Pages
+                    </button>
+                    <div className="absolute left-0 top-full mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-10 hidden group-hover:block min-w-[180px]">
+                      <button
+                        onClick={() => handleDownloadAllPages('html')}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-slate-300 hover:bg-slate-700 text-xs text-left transition-colors"
+                      >
+                        <FileText size={12} />
+                        Download All as HTML
+                      </button>
+                      <button
+                        onClick={() => handleDownloadAllPages('md')}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-slate-300 hover:bg-slate-700 text-xs text-left transition-colors"
+                      >
+                        <BookOpen size={12} />
+                        Download All as Markdown
+                      </button>
+                    </div>
+                  </div>
+                  <span className="text-slate-500 text-xs">
+                    {pages.filter(p => p.content && p.content.length > 50).length} articles — {pages.filter(p => p.content && p.content.length > 50).reduce((s, p) => s + (p.wordCount || 0), 0).toLocaleString()} words
+                  </span>
+                </div>
+              )}
+              <div className="space-y-3">
               {pages.filter(p => p.content && p.content.length > 50).length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
                   <FileText size={40} className="mx-auto mb-3 opacity-30" />
@@ -631,7 +853,16 @@ export default function ArticleGenerator() {
                           <PageTypeBadge type={page.type} size="sm" />
                           <h4 className="text-white font-medium text-sm">{page.title}</h4>
                         </div>
-                        <span className="text-slate-500 text-xs">{page.wordCount?.toLocaleString() || 0} words</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500 text-xs">{page.wordCount?.toLocaleString() || 0} words</span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleExportArticle(page.id, 'html'); }}
+                            className="p-1 text-slate-500 hover:text-emerald-300 transition-colors"
+                            title="Download HTML"
+                          >
+                            <Download size={14} />
+                          </button>
+                        </div>
                       </div>
                       <p className="text-slate-400 text-xs mb-2 line-clamp-2">{page.metaDescription}</p>
                       <div className="flex items-center gap-3 text-[11px]">
@@ -654,6 +885,7 @@ export default function ArticleGenerator() {
                   );
                 })
               )}
+            </div>
             </div>
           )}
         </div>
