@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { useAutoSave } from '@/lib/useAutoSave';
 import {
   Check, Zap, Menu, X, Shield, Key, LogOut, User,
   BarChart3, Calendar, FileText, Network, Link2, Brain, PenTool,
   Globe, TrendingUp, FileDown, Save, Loader2, Cloud, CloudOff,
+  FolderOpen, ChevronDown, Pencil,
 } from 'lucide-react';
 
 const workflowSteps = [
@@ -31,12 +32,83 @@ const toolSteps = [
 ];
 
 export default function Sidebar() {
-  const { currentStep, setStep, project, silos, pages, user, logout, isDirty, isSaving, lastSavedAt } = useStore();
+  const { currentStep, setStep, project, silos, pages, user, logout, isDirty, isSaving, token, setProject, setSilos, setPages, setInternalLinks, setSavedProjectId } = useStore();
   const { saveProject } = useAutoSave();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showProjectSwitcher, setShowProjectSwitcher] = useState(false);
+  const [allProjects, setAllProjects] = useState<Array<{ id: string; name: string; domain: string; created_at: string }>>([]);
 
   const isAdmin = user?.role === 'admin';
+
+  // Load projects for switcher
+  useEffect(() => {
+    if (token) {
+      fetch('/api/projects', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json())
+        .then(data => { if (Array.isArray(data)) setAllProjects(data); })
+        .catch(() => {});
+    }
+  }, [token, project?.id]); // reload when project changes
+
+  // Safely parse keywords
+  function safeParseKeywords(raw: string | null | undefined): string[] {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+      return [String(parsed)];
+    } catch {
+      return raw.split(',').map(s => s.trim()).filter(Boolean);
+    }
+  }
+
+  // Switch to another project
+  const handleSwitchProject = async (projectId: string) => {
+    if (projectId === project?.id) {
+      setShowProjectSwitcher(false);
+      return;
+    }
+    try {
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const projRes = await fetch(`/api/projects/${projectId}`, { headers });
+      const proj = await projRes.json();
+      const silosRes = await fetch(`/api/silos?project_id=${projectId}`, { headers });
+      const dbSilos = await silosRes.json();
+      const pagesRes = await fetch(`/api/pages?project_id=${projectId}`, { headers });
+      const dbPages = await pagesRes.json();
+      const linksRes = await fetch(`/api/internal-links?project_id=${projectId}`, { headers });
+      const dbLinks = await linksRes.json();
+
+      setProject({
+        id: proj.id, name: proj.name, domain: proj.domain,
+        language: proj.language || 'en', niche: proj.niche || '',
+        seedKeywords: safeParseKeywords(proj.seed_keywords),
+      });
+      setSilos((dbSilos || []).map((s: any) => ({
+        id: s.id, projectId: s.project_id, name: s.name, keywords: safeParseKeywords(s.keywords),
+      })));
+      setPages((dbPages || []).map((p: any) => ({
+        id: p.id, projectId: p.project_id, siloId: p.silo_id, title: p.title,
+        slug: p.slug, metaDescription: p.meta_description || '',
+        keywords: safeParseKeywords(p.keywords),
+        type: (['pillar','cluster','blog','category','landing'].includes(p.type) ? p.type : 'blog') as any,
+        parentId: p.parent_id,
+        status: (['draft','in_progress','review','published'].includes(p.status||'') ? p.status : 'draft') as any,
+        content: p.content || '', wordCount: p.word_count || 0,
+      })));
+      setInternalLinks((dbLinks || []).map((l: any) => ({
+        id: l.id, projectId: l.project_id, fromPageId: l.from_page_id,
+        toPageId: l.to_page_id, anchor: l.anchor,
+      })));
+      setSavedProjectId(projectId);
+      setShowProjectSwitcher(false);
+      setStep(0); // go to dashboard
+    } catch (err) {
+      console.error('Failed to switch project:', err);
+    }
+  };
 
   const isStepAccessible = (step: number): boolean => {
     if (step === 0) return true; // Dashboard always accessible
@@ -96,6 +168,55 @@ export default function Sidebar() {
             <p className="text-[10px] md:text-[11px] text-slate-500">SEO Architecture Builder</p>
           </div>
         </div>
+
+        {/* Project Switcher */}
+        {project && (
+          <div className="mt-3 relative">
+            <button
+              onClick={() => setShowProjectSwitcher(!showProjectSwitcher)}
+              className="w-full flex items-center gap-2 p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"
+            >
+              <div className="w-7 h-7 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                <FolderOpen size={14} className="text-blue-400" />
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-white text-xs font-medium truncate">{project.name}</p>
+                <p className="text-slate-500 text-[10px] truncate">{project.domain}</p>
+              </div>
+              {allProjects.length > 1 && (
+                <ChevronDown size={12} className={`text-slate-500 transition-transform ${showProjectSwitcher ? 'rotate-180' : ''}`} />
+              )}
+            </button>
+
+            {/* Project Switcher Dropdown */}
+            {showProjectSwitcher && allProjects.length > 1 && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-10 max-h-48 overflow-y-auto">
+                {allProjects
+                  .filter(p => p.id !== project?.id)
+                  .map(p => (
+                  <button key={p.id}
+                    onClick={() => handleSwitchProject(p.id)}
+                    className="w-full text-left p-2.5 hover:bg-slate-700 transition-colors flex items-center gap-2"
+                  >
+                    <FolderOpen size={12} className="text-slate-500 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-white text-xs font-medium truncate">{p.name}</p>
+                      <p className="text-slate-500 text-[10px] truncate">{p.domain}</p>
+                    </div>
+                  </button>
+                ))}
+                <div className="border-t border-slate-700">
+                  <button
+                    onClick={() => { setStep(1); setShowProjectSwitcher(false); }}
+                    className="w-full text-left p-2.5 hover:bg-slate-700 transition-colors text-blue-400 text-xs font-medium"
+                  >
+                    + New Project
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Save status + button */}
         {project && (

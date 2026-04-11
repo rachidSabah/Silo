@@ -1,16 +1,24 @@
 'use client';
 
+import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '@/store/useStore';
 import { calculateSEOScore, getScoreColor, getScoreBgColor } from '@/lib/seo-score';
 import { calculateSiloHealth, getHealthColor, getHealthBgColor, getHealthDot } from '@/lib/silo-health';
+import { authFetch } from '@/lib/utils';
 import {
   BarChart3, FileText, Layers, Target, TrendingUp,
   AlertTriangle, CheckCircle2, Clock, Eye,
-  Network, Link2, Brain, PenTool, Zap,
+  Network, Link2, Brain, PenTool, Zap, FolderOpen,
+  RefreshCw, Loader2,
 } from 'lucide-react';
 
 export default function DashboardAnalytics() {
-  const { project, silos, pages, internalLinks, setStep } = useStore();
+  const { project, silos, pages, internalLinks, setStep, token, setProject, setSilos, setPages, setInternalLinks, setSavedProjectId, isDirty } = useStore();
+
+  // Project switcher state
+  const [allProjects, setAllProjects] = useState<Array<{ id: string; name: string; domain: string; created_at: string }>>([]);
+  const [showProjectList, setShowProjectList] = useState(false);
+  const [loadingProjects, setLoadingProjects] = useState(false);
 
   // Calculate stats
   const totalPages = pages.length;
@@ -80,18 +88,130 @@ export default function DashboardAnalytics() {
   const pagesWithContent = pages.filter(p => p.content && p.content.length > 50).length;
   const totalWords = pages.reduce((sum, p) => sum + (p.wordCount || 0), 0);
 
+  // Load all user projects
+  const loadAllProjects = useCallback(async () => {
+    if (!token) return;
+    setLoadingProjects(true);
+    try {
+      const res = await authFetch('/api/projects', token);
+      const data = await res.json();
+      setAllProjects(Array.isArray(data) ? data : []);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingProjects(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadAllProjects();
+  }, [loadAllProjects]);
+
+  // Safely parse keywords
+  function safeParseKeywords(raw: string | null | undefined): string[] {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+      return [String(parsed)];
+    } catch {
+      return raw.split(',').map(s => s.trim()).filter(Boolean);
+    }
+  }
+
+  // Switch to another project
+  const handleSwitchProject = async (projectId: string) => {
+    if (projectId === project?.id) {
+      setShowProjectList(false);
+      return;
+    }
+    try {
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const projRes = await fetch(`/api/projects/${projectId}`, { headers });
+      const proj = await projRes.json();
+      const silosRes = await fetch(`/api/silos?project_id=${projectId}`, { headers });
+      const dbSilos = await silosRes.json();
+      const pagesRes = await fetch(`/api/pages?project_id=${projectId}`, { headers });
+      const dbPages = await pagesRes.json();
+      const linksRes = await fetch(`/api/internal-links?project_id=${projectId}`, { headers });
+      const dbLinks = await linksRes.json();
+
+      setProject({
+        id: proj.id, name: proj.name, domain: proj.domain,
+        language: proj.language || 'en', niche: proj.niche || '',
+        seedKeywords: safeParseKeywords(proj.seed_keywords),
+      });
+      setSilos((dbSilos || []).map((s: any) => ({
+        id: s.id, projectId: s.project_id, name: s.name, keywords: safeParseKeywords(s.keywords),
+      })));
+      setPages((dbPages || []).map((p: any) => ({
+        id: p.id, projectId: p.project_id, siloId: p.silo_id, title: p.title,
+        slug: p.slug, metaDescription: p.meta_description || '',
+        keywords: safeParseKeywords(p.keywords),
+        type: (['pillar','cluster','blog','category','landing'].includes(p.type) ? p.type : 'blog') as any,
+        parentId: p.parent_id,
+        status: (['draft','in_progress','review','published'].includes(p.status||'') ? p.status : 'draft') as any,
+        content: p.content || '', wordCount: p.word_count || 0,
+      })));
+      setInternalLinks((dbLinks || []).map((l: any) => ({
+        id: l.id, projectId: l.project_id, fromPageId: l.from_page_id,
+        toPageId: l.to_page_id, anchor: l.anchor,
+      })));
+      setSavedProjectId(projectId);
+      setShowProjectList(false);
+    } catch (err) {
+      console.error('Failed to switch project:', err);
+    }
+  };
+
   if (!project) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-        <BarChart3 size={48} className="mb-4 opacity-30" />
-        <p className="text-lg font-medium mb-2">No Project Selected</p>
-        <p className="text-sm mb-4">Create or load a project to see analytics.</p>
-        <button
-          onClick={() => setStep(1)}
-          className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 transition-colors"
-        >
-          Set Up Project
-        </button>
+      <div>
+        <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+          <BarChart3 size={48} className="mb-4 opacity-30" />
+          <p className="text-lg font-medium mb-2">No Project Selected</p>
+          <p className="text-sm mb-4">Create or load a project to see analytics.</p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setStep(1)}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 transition-colors"
+            >
+              New Project
+            </button>
+            {allProjects.length > 0 && (
+              <button
+                onClick={() => setShowProjectList(!showProjectList)}
+                className="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg text-sm hover:bg-slate-600 transition-colors"
+              >
+                <FolderOpen size={14} className="inline mr-1" />
+                My Projects ({allProjects.length})
+              </button>
+            )}
+          </div>
+        </div>
+        {showProjectList && allProjects.length > 0 && (
+          <div className="max-w-xl mx-auto mt-4">
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-white text-sm font-semibold">My Projects</h3>
+                <button onClick={loadAllProjects} className="text-slate-400 hover:text-white">
+                  <RefreshCw size={14} />
+                </button>
+              </div>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {allProjects.map(p => (
+                  <button key={p.id} onClick={() => handleSwitchProject(p.id)}
+                    className="w-full text-left p-3 bg-slate-900 rounded-lg hover:bg-slate-700 transition-colors"
+                  >
+                    <p className="text-white text-sm font-medium">{p.name}</p>
+                    <p className="text-slate-500 text-xs">{p.domain} · {new Date(p.created_at).toLocaleDateString()}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -99,8 +219,42 @@ export default function DashboardAnalytics() {
   return (
     <div>
       <div className="mb-6 md:mb-8">
-        <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Dashboard</h2>
-        <p className="text-sm md:text-base text-slate-400">Overview of your SEO architecture for <span className="text-blue-400">{project.name}</span></p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Dashboard</h2>
+            <p className="text-sm md:text-base text-slate-400">Overview of your SEO architecture for <span className="text-blue-400">{project.name}</span></p>
+          </div>
+          {allProjects.length > 1 && (
+            <div className="relative flex-shrink-0">
+              <button
+                onClick={() => setShowProjectList(!showProjectList)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:bg-slate-700 transition-colors"
+              >
+                <FolderOpen size={14} />
+                Switch Project
+              </button>
+              {showProjectList && (
+                <div className="absolute right-0 top-full mt-1 w-64 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-10 max-h-80 overflow-y-auto">
+                  <div className="p-2 border-b border-slate-700 flex items-center justify-between">
+                    <span className="text-xs text-slate-500 uppercase tracking-wider px-2">My Projects</span>
+                    <button onClick={loadAllProjects} className="text-slate-400 hover:text-white p-1">
+                      <RefreshCw size={12} />
+                    </button>
+                  </div>
+                  {allProjects.map(p => (
+                    <button key={p.id}
+                      onClick={() => handleSwitchProject(p.id)}
+                      className={`w-full text-left p-3 hover:bg-slate-700 transition-colors ${p.id === project.id ? 'bg-blue-500/10 border-l-2 border-blue-500' : ''}`}
+                    >
+                      <p className="text-white text-sm font-medium truncate">{p.name}</p>
+                      <p className="text-slate-500 text-xs">{p.domain}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Top Stats Row */}

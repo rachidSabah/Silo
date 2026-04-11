@@ -10,7 +10,7 @@ import { authFetch } from '@/lib/utils';
  * function for the sidebar Save button.
  */
 export function useAutoSave() {
-  const { project, silos, pages, internalLinks, token, isDirty, markSaved, setIsSaving, setSavedProjectId } = useStore();
+  const { project, silos, pages, internalLinks, token, user, isDirty, markSaved, setIsSaving, setSavedProjectId } = useStore();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const saveProject = useCallback(async () => {
@@ -30,6 +30,7 @@ export function useAutoSave() {
           niche: project.niche,
           seedKeywords: project.seedKeywords,
           seed_keywords: JSON.stringify(project.seedKeywords || []),
+          user_id: user?.id || null,
         }),
       });
       if (!projectRes.ok) throw new Error('Failed to save project');
@@ -92,7 +93,7 @@ export function useAutoSave() {
     } finally {
       setIsSaving(false);
     }
-  }, [project, silos, pages, internalLinks, token, markSaved, setIsSaving, setSavedProjectId]);
+  }, [project, silos, pages, internalLinks, token, user, markSaved, setIsSaving, setSavedProjectId]);
 
   // Auto-save with 3-second debounce when dirty
   useEffect(() => {

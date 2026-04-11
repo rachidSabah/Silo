@@ -13,6 +13,7 @@ interface MemDB {
     language: string;
     niche: string | null;
     seed_keywords: string | null;
+    user_id: string | null;
     created_at: string;
   }>;
   silos: Array<{
@@ -132,15 +133,20 @@ async function runMigrations(db: D1Database) {
 
 // ===== Projects =====
 
-export async function getAllProjects() {
+export async function getAllProjects(userId?: string) {
   if (isCloudflare()) {
     const db = getD1();
     await ensureMigration(db);
+    if (userId) {
+      const { results } = await db.prepare('SELECT * FROM projects WHERE user_id = ? ORDER BY created_at DESC').bind(userId).all();
+      return results;
+    }
     const { results } = await db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all();
     return results;
   }
   const mem = getMemDB();
-  return [...mem.projects].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const filtered = userId ? mem.projects.filter(p => p.user_id === userId) : mem.projects;
+  return [...filtered].sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
 export async function getProjectById(id: string) {
@@ -152,11 +158,14 @@ export async function getProjectById(id: string) {
   return mem.projects.find((p) => p.id === id) || null;
 }
 
-export async function createProject(data: { id: string; name: string; domain: string; language: string; niche?: string; seed_keywords?: string }) {
+export async function createProject(data: { id: string; name: string; domain: string; language: string; niche?: string; seed_keywords?: string; user_id?: string }) {
   if (isCloudflare()) {
     const db = getD1();
-    await db.prepare('INSERT OR REPLACE INTO projects (id, name, domain, language, niche, seed_keywords) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(data.id, data.name, data.domain, data.language, data.niche || null, data.seed_keywords || null).run();
+    await ensureMigration(db);
+    // Ensure user_id column exists
+    try { await db.prepare('ALTER TABLE projects ADD COLUMN user_id TEXT').run(); } catch { /* already exists */ }
+    await db.prepare('INSERT OR REPLACE INTO projects (id, name, domain, language, niche, seed_keywords, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(data.id, data.name, data.domain, data.language, data.niche || null, data.seed_keywords || null, data.user_id || null).run();
     return;
   }
   const mem = getMemDB();
@@ -169,8 +178,39 @@ export async function createProject(data: { id: string; name: string; domain: st
     language: data.language,
     niche: data.niche || null,
     seed_keywords: data.seed_keywords || null,
+    user_id: data.user_id || null,
     created_at: new Date().toISOString(),
   });
+}
+
+export async function updateProject(id: string, data: { name?: string; domain?: string; language?: string; niche?: string; seed_keywords?: string }) {
+  const fields: string[] = [];
+  const values: (string | null)[] = [];
+
+  if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name); }
+  if (data.domain !== undefined) { fields.push('domain = ?'); values.push(data.domain); }
+  if (data.language !== undefined) { fields.push('language = ?'); values.push(data.language); }
+  if (data.niche !== undefined) { fields.push('niche = ?'); values.push(data.niche || null); }
+  if (data.seed_keywords !== undefined) { fields.push('seed_keywords = ?'); values.push(data.seed_keywords || null); }
+
+  if (fields.length === 0) return null;
+
+  if (isCloudflare()) {
+    values.push(id);
+    const db = getD1();
+    return db.prepare(`UPDATE projects SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+  }
+  // In-memory update
+  const mem = getMemDB();
+  const project = mem.projects.find((p) => p.id === id);
+  if (project) {
+    if (data.name !== undefined) project.name = data.name;
+    if (data.domain !== undefined) project.domain = data.domain;
+    if (data.language !== undefined) project.language = data.language;
+    if (data.niche !== undefined) project.niche = data.niche || null;
+    if (data.seed_keywords !== undefined) project.seed_keywords = data.seed_keywords || null;
+  }
+  return null;
 }
 
 export async function deleteProject(id: string) {

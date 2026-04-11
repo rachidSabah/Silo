@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromRequest, hashPassword, verifyPassword, createToken } from '@/lib/auth';
 import {
-  getAllProjects, getProjectById, createProject, deleteProject,
+  getAllProjects, getProjectById, createProject, updateProject, deleteProject,
   getSilosByProject, createSilo, updateSilo, deleteSilo,
   getPagesByProject, createPage, updatePage, deletePage,
   getInternalLinksByProject, createInternalLink, deleteInternalLink,
@@ -40,12 +40,14 @@ async function handleRequest(req: NextRequest) {
   try {
     switch (true) {
       // Projects — both /api/ and /api/projects paths
-      case (path === '' || path === 'projects') && m === 'GET': return json(await getAllProjects());
-      case (path === '' || path === 'projects') && m === 'POST': { const d = await body(req); await createProject({ id: d.id || crypto.randomUUID(), name: d.name || '', domain: d.domain || '', language: d.language || 'en', niche: d.niche || '', seed_keywords: d.seed_keywords || (d.seedKeywords ? JSON.stringify(d.seedKeywords) : '') }); return json({ ok: true }); }
+      case (path === '' || path === 'projects') && m === 'GET': { const u = await getUserFromRequest(req); return json(await getAllProjects(u?.userId)); }
+      case (path === '' || path === 'projects') && m === 'POST': { const u = await getUserFromRequest(req); const d = await body(req); await createProject({ id: d.id || crypto.randomUUID(), name: d.name || '', domain: d.domain || '', language: d.language || 'en', niche: d.niche || '', seed_keywords: d.seed_keywords || (d.seedKeywords ? JSON.stringify(d.seedKeywords) : ''), user_id: u?.userId || null }); return json({ ok: true }); }
       case seg.length === 1 && isUUID(seg[0]) && m === 'GET': return json(await getProjectById(seg[0]));
       case seg.length === 1 && isUUID(seg[0]) && m === 'DELETE': await deleteProject(seg[0]); return json({ ok: true });
       // Projects/:id & gsc-metrics
       case seg[0] === 'projects' && seg.length === 2 && isUUID(seg[1]) && m === 'GET': return json(await getProjectById(seg[1]));
+      case seg[0] === 'projects' && seg.length === 2 && isUUID(seg[1]) && m === 'PUT': { const d = await body(req); await updateProject(seg[1], d); return json({ ok: true }); }
+      case seg[0] === 'projects' && seg.length === 2 && isUUID(seg[1]) && m === 'PATCH': { const d = await body(req); await updateProject(seg[1], d); return json({ ok: true }); }
       case seg[0] === 'projects' && seg.length === 2 && isUUID(seg[1]) && m === 'DELETE': await deleteProject(seg[1]); return json({ ok: true });
       case seg[0] === 'projects' && seg.length === 3 && isUUID(seg[1]) && seg[2] === 'gsc-metrics' && m === 'GET': { const user = await getUserFromRequest(req); if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); return json({ metrics: await getGSCMetricsBySilo(seg[1]), project_id: seg[1] }); }
       // Silos
@@ -121,7 +123,7 @@ async function handleImportCompetitor(req: NextRequest) {
   let mapped: { niche: string; silos: Array<{ name: string; keywords: string[]; pillar: { title: string; slug: string; meta_description: string; keywords: string[] }; clusters: Array<{ title: string; slug: string; meta_description: string; keywords: string[] }>; blogs: Array<{ title: string; slug: string; meta_description: string; keywords: string[] }> }> };
   try { mapped = JSON.parse(aiResult.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()); } catch { return NextResponse.json({ error: 'AI invalid response' }, { status: 500 }); }
   const pid = crypto.randomUUID();
-  await createProject({ id: pid, name: project_name || `Competitor: ${domain}`, domain, language: language || 'en', niche: mapped.niche, seed_keywords: mapped.silos.flatMap(s => s.keywords).join(', ') });
+  await createProject({ id: pid, name: project_name || `Competitor: ${domain}`, domain, language: language || 'en', niche: mapped.niche, seed_keywords: mapped.silos.flatMap(s => s.keywords).join(', '), user_id: user.userId });
   let sc = 0, pc = 0;
   await processInBatches(mapped.silos, BATCH_SIZES.DB_WRITES, async (silo) => {
     const sid = crypto.randomUUID();

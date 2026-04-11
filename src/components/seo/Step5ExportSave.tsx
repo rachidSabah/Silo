@@ -15,6 +15,9 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  Pencil,
+  Check,
+  X,
 } from 'lucide-react';
 
 interface SavedProject {
@@ -24,6 +27,7 @@ interface SavedProject {
   language: string;
   niche: string | null;
   seed_keywords: string | null;
+  user_id: string | null;
   created_at: string;
 }
 
@@ -41,13 +45,26 @@ function safeParseKeywords(raw: string | null | undefined): string[] {
 }
 
 export default function Step5ExportSave() {
-  const { project, silos, pages, setStep, setProject, setSilos, setPages, setSavedProjectId, savedProjectId, resetStore, token } = useStore();
+  const {
+    project, silos, pages, internalLinks,
+    setStep, setProject, setSilos, setPages, setInternalLinks,
+    setSavedProjectId, savedProjectId, resetStore, token,
+    isDirty, markSaved,
+  } = useStore();
+
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'export' | 'saved' | 'tree'>('export');
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  // Rename state
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+
+  // Unsaved changes warning
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
 
   // ALL hooks must be called before any conditional returns
   // Redirect guard
@@ -115,6 +132,15 @@ export default function Step5ExportSave() {
 
   const totalKeywords = pages.reduce((sum, p) => sum + p.keywords.length, 0);
 
+  // Check for unsaved changes before an action
+  const withUnsavedCheck = (action: () => void) => {
+    if (isDirty && project) {
+      setPendingAction(() => action);
+    } else {
+      action();
+    }
+  };
+
   // Save project to database
   const handleSave = async () => {
     if (!project) return;
@@ -180,7 +206,24 @@ export default function Step5ExportSave() {
         if (!pageRes.ok) saveErrors++;
       }
 
+      // Save internal links
+      for (const link of internalLinks) {
+        const linkRes = await fetch('/api/internal-links', {
+          method: 'POST',
+          headers: saveHeaders,
+          body: JSON.stringify({
+            id: link.id,
+            project_id: project.id,
+            from_page_id: link.fromPageId,
+            to_page_id: link.toPageId,
+            anchor: link.anchor,
+          }),
+        });
+        if (!linkRes.ok) saveErrors++;
+      }
+
       setSavedProjectId(project.id);
+      markSaved();
       if (saveErrors > 0) {
         setSaveMessage({ type: 'error', text: `Project saved with ${saveErrors} errors. Some items may not have been saved.` });
       } else {
@@ -195,8 +238,8 @@ export default function Step5ExportSave() {
     }
   };
 
-  // Load project from DB
-  const handleLoadProject = async (projectId: string) => {
+  // Load project from DB — now also loads internal links
+  const doLoadProject = async (projectId: string) => {
     try {
       const loadHeaders: Record<string, string> = {};
       if (token) loadHeaders['Authorization'] = `Bearer ${token}`;
@@ -209,6 +252,10 @@ export default function Step5ExportSave() {
 
       const pagesRes = await fetch(`/api/pages?project_id=${projectId}`, { headers: loadHeaders });
       const dbPages = await pagesRes.json();
+
+      // Load internal links too
+      const linksRes = await fetch(`/api/internal-links?project_id=${projectId}`, { headers: loadHeaders });
+      const dbLinks = await linksRes.json();
 
       setProject({
         id: proj.id,
@@ -245,11 +292,26 @@ export default function Step5ExportSave() {
         }))
       );
 
+      // Populate internal links into the store
+      setInternalLinks(
+        (dbLinks || []).map((l: { id: string; project_id: string; from_page_id: string; to_page_id: string; anchor: string }) => ({
+          id: l.id,
+          projectId: l.project_id,
+          fromPageId: l.from_page_id,
+          toPageId: l.to_page_id,
+          anchor: l.anchor,
+        }))
+      );
+
       setSavedProjectId(projectId);
       setStep(2);
     } catch (err) {
       console.error('Failed to load project:', err);
     }
+  };
+
+  const handleLoadProject = (projectId: string) => {
+    withUnsavedCheck(() => doLoadProject(projectId));
   };
 
   // Delete project
@@ -273,6 +335,46 @@ export default function Step5ExportSave() {
     }
   };
 
+  // Rename project
+  const handleStartRename = (proj: SavedProject) => {
+    setRenamingProjectId(proj.id);
+    setRenameValue(proj.name);
+  };
+
+  const handleConfirmRename = async () => {
+    if (!renamingProjectId || !renameValue.trim()) return;
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      await fetch(`/api/projects/${renamingProjectId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ name: renameValue.trim() }),
+      });
+
+      // If the renamed project is the current project, update store
+      if (project && project.id === renamingProjectId) {
+        setProject({ ...project, name: renameValue.trim() });
+      }
+
+      loadProjects();
+      setRenamingProjectId(null);
+      setRenameValue('');
+    } catch (err) {
+      console.error('Failed to rename project:', err);
+    }
+  };
+
+  const handleCancelRename = () => {
+    setRenamingProjectId(null);
+    setRenameValue('');
+  };
+
+  // Start new project with unsaved check
+  const handleNewProject = () => {
+    withUnsavedCheck(() => resetStore());
+  };
+
   // Conditional return AFTER all hooks
   if (!project) return null;
 
@@ -284,6 +386,48 @@ export default function Step5ExportSave() {
           Save your project to the database, export pages as CSV, and review your complete SEO architecture.
         </p>
       </div>
+
+      {/* Unsaved Changes Warning Modal */}
+      {pendingAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <h3 className="text-white text-lg font-semibold mb-2">Unsaved Changes</h3>
+            <p className="text-slate-400 text-sm mb-6">
+              You have unsaved changes in your current project. If you continue, these changes will be lost. Do you want to save first?
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={async () => {
+                  await handleSave();
+                  const action = pendingAction;
+                  setPendingAction(null);
+                  if (action) action();
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                <Save size={16} />
+                Save & Continue
+              </button>
+              <button
+                onClick={() => {
+                  const action = pendingAction;
+                  setPendingAction(null);
+                  if (action) action();
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-red-500/20 text-red-300 border border-red-500/30 font-medium rounded-lg hover:bg-red-500/30 transition-colors"
+              >
+                Discard Changes
+              </button>
+              <button
+                onClick={() => setPendingAction(null)}
+                className="w-full px-4 py-2 text-slate-400 hover:text-white text-sm transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-2 mb-6 overflow-x-auto">
@@ -305,7 +449,7 @@ export default function Step5ExportSave() {
               : 'text-slate-400 hover:text-white border border-transparent'
           }`}
         >
-          Saved Projects
+          My Projects
         </button>
         <button
           onClick={() => setActiveTab('tree')}
@@ -341,7 +485,7 @@ export default function Step5ExportSave() {
               </div>
               <h3 className="text-white font-semibold mb-2">Save to Database</h3>
               <p className="text-slate-500 text-sm mb-4">
-                Persist your project, silos, and pages to the cloud database for later access and editing.
+                Persist your project, silos, pages, and internal links to the cloud database for later access.
               </p>
               <button
                 onClick={handleSave}
@@ -426,7 +570,7 @@ export default function Step5ExportSave() {
 
           {/* New Project */}
           <button
-            onClick={resetStore}
+            onClick={handleNewProject}
             className="flex items-center gap-2 px-5 py-2.5 bg-slate-700/50 text-slate-300 border border-slate-600 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors"
           >
             <Plus size={16} />
@@ -453,33 +597,81 @@ export default function Step5ExportSave() {
               {savedProjects.map((proj) => (
                 <div
                   key={proj.id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-slate-800 border border-slate-700 rounded-xl hover:border-slate-600 transition-colors gap-3"
+                  className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-slate-800 border rounded-xl transition-colors gap-3 ${
+                    savedProjectId === proj.id ? 'border-blue-500/40 bg-blue-500/5' : 'border-slate-700 hover:border-slate-600'
+                  }`}
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="text-white font-medium truncate">{proj.name}</p>
-                    <p className="text-slate-500 text-sm">
-                      {proj.domain} · {proj.language?.toUpperCase()} · Created {new Date(proj.created_at).toLocaleDateString()}
-                    </p>
+                    {renamingProjectId === proj.id ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleConfirmRename();
+                            if (e.key === 'Escape') handleCancelRename();
+                          }}
+                          className="flex-1 px-2 py-1 bg-slate-900 border border-slate-600 rounded text-white text-sm focus:outline-none focus:border-blue-500"
+                          autoFocus
+                        />
+                        <button
+                          onClick={handleConfirmRename}
+                          className="p-1 text-emerald-400 hover:text-emerald-300 transition-colors"
+                          title="Confirm rename"
+                        >
+                          <Check size={16} />
+                        </button>
+                        <button
+                          onClick={handleCancelRename}
+                          className="p-1 text-slate-400 hover:text-white transition-colors"
+                          title="Cancel"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-white font-medium truncate flex items-center gap-2">
+                          {proj.name}
+                          {savedProjectId === proj.id && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded font-normal">Active</span>
+                          )}
+                        </p>
+                        <p className="text-slate-500 text-sm">
+                          {proj.domain} · {proj.language?.toUpperCase()} · Created {new Date(proj.created_at).toLocaleDateString()}
+                        </p>
+                      </>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => handleLoadProject(proj.id)}
-                      className="px-3 py-1.5 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-lg text-sm font-medium hover:bg-blue-500/30 transition-colors"
-                    >
-                      Load
-                    </button>
-                    <button
-                      onClick={() => handleDeleteProject(proj.id)}
-                      className={`p-1.5 rounded transition-all ${
-                        deleteConfirm === proj.id
-                          ? 'text-red-400 bg-red-500/20'
-                          : 'text-slate-500 hover:text-red-400'
-                      }`}
-                      title={deleteConfirm === proj.id ? 'Click again to confirm' : 'Delete project'}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  {renamingProjectId !== proj.id && (
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => handleLoadProject(proj.id)}
+                        className="px-3 py-1.5 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-lg text-sm font-medium hover:bg-blue-500/30 transition-colors"
+                      >
+                        Load
+                      </button>
+                      <button
+                        onClick={() => handleStartRename(proj)}
+                        className="p-1.5 text-slate-500 hover:text-amber-400 transition-all rounded"
+                        title="Rename project"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteProject(proj.id)}
+                        className={`p-1.5 rounded transition-all ${
+                          deleteConfirm === proj.id
+                            ? 'text-red-400 bg-red-500/20'
+                            : 'text-slate-500 hover:text-red-400'
+                        }`}
+                        title={deleteConfirm === proj.id ? 'Click again to confirm' : 'Delete project'}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  )}
                   {deleteConfirm === proj.id && (
                     <p className="text-red-400 text-xs sm:hidden">Click trash again to confirm</p>
                   )}
