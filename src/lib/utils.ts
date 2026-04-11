@@ -33,6 +33,9 @@ export function sanitizeHTML(html: string): string {
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
     // Remove dangerous tags
     .replace(/<\/?(?:script|iframe|object|embed|applet|form|input|textarea|select|button|meta|link|base)\b[^>]*>/gi, '')
+    // Remove inline style attributes — AI-generated styles (like color: #000, background: white)
+    // conflict with the dark-mode .article-content CSS and cause invisible text
+    .replace(/\s+style\s*=\s*(?:"[^"]*"|'[^']*')/gi, '')
     // Remove event handlers (on* attributes)
     .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
     // Remove javascript: URLs
