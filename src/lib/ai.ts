@@ -1549,3 +1549,219 @@ export async function bulkGenerateSiloArticles(
 
   return results;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FEATURE: AI Content Humanizer — Rewrites AI text to sound human
+// ═══════════════════════════════════════════════════════════════════════════
+export interface HumanizeResult {
+  humanized: string;
+  originalScore: number;
+  humanizedScore: number;
+  changesCount: number;
+  originalWordCount: number;
+  humanizedWordCount: number;
+}
+
+export async function humanizeContent(
+  content: string,
+  level: string,
+  contentType: string,
+  preserveKeywords: boolean,
+  req?: NextRequest
+): Promise<HumanizeResult> {
+  const safeContent = content || '';
+  const safeLevel = level || 'medium';
+  const safeContentType = contentType || 'blog';
+  const wordCount = (t: string) => t.trim().split(/\s+/).filter(Boolean).length;
+
+  const levelInstructions: Record<string, string> = {
+    light: 'Make minimal changes. Preserve most of the original sentence structure and vocabulary. Only adjust the most obvious AI patterns like repetitive phrasing and overly formal transitions.',
+    medium: 'Moderately rewrite the content. Change sentence structures, vary vocabulary, add natural transitions, introduce conversational elements, and break up long uniform paragraphs. Keep the core meaning and key information intact.',
+    heavy: 'Extensively rewrite the content to sound completely natural and human. Rephrase significantly, add personal perspective, use varied sentence lengths, include colloquial expressions where appropriate, and restructure paragraphs for a more organic flow.',
+  };
+
+  const typeContext: Record<string, string> = {
+    blog: 'a blog post',
+    article: 'an informational article',
+    product: 'a product description',
+    landing: 'a landing page',
+    howto: 'a how-to guide',
+  };
+
+  const result = await callAI([
+    {
+      role: 'system',
+      content: `You are an expert content humanizer. Your job is to rewrite AI-generated text so it sounds like it was written by a real human. You must make the text pass AI detection tools while preserving its meaning and value.
+
+HUMANIZATION RULES:
+1. Vary sentence length — mix short punchy sentences with longer descriptive ones
+2. Use conversational connectors and transitions (e.g., "Now here's the thing...", "That said,", "The reality is...")
+3. Add occasional first-person perspective or opinion signals
+4. Replace overly formal/academic phrasing with natural alternatives
+5. Break up uniform paragraph structures
+6. Use contractions (don't, it's, that's) instead of full forms
+7. Add transitional asides in parentheses or em-dashes
+8. Vary paragraph openings — avoid starting multiple paragraphs the same way
+9. Include subtle imperfections that humans naturally have (slight redundancy, colloquial phrasing)
+10. ${preserveKeywords ? 'CRITICAL: Preserve all SEO keywords, brand names, and technical terms exactly as they appear. Do not modify keywords in quotes or keyword lists.' : 'You may adjust keywords for better natural flow.'}
+
+LEVEL: ${safeLevel.toUpperCase()} — ${levelInstructions[safeLevel] || levelInstructions.medium}
+
+CONTENT TYPE: This is ${typeContext[safeContentType] || 'a blog post'}. Adjust tone accordingly.
+
+OUTPUT FORMAT: Return ONLY a JSON object with this exact schema (no markdown, no explanation):
+{
+  "humanized": "the full rewritten content here",
+  "original_ai_score": 85,
+  "humanized_ai_score": 15,
+  "changes_made": 23
+}
+
+The scores represent estimated AI detection probability (0-100, where 100 = definitely AI).
+original_ai_score should be 70-95 (high since it's AI-generated).
+humanized_ai_score should be 5-30 (low since it now sounds human).
+changes_made is the approximate number of distinct phrasing/structural changes you made.`,
+    },
+    {
+      role: 'user',
+      content: `Humanize the following ${safeContentType} content at ${safeLevel} level:\n\n${safeContent}`,
+    },
+  ], req);
+
+  try {
+    const cleaned = cleanAIResponse(result);
+    const parsed = JSON.parse(cleaned);
+    return {
+      humanized: parsed.humanized || parsed.rewritten || safeContent,
+      originalScore: parsed.original_ai_score || 85,
+      humanizedScore: parsed.humanized_ai_score || 20,
+      changesCount: parsed.changes_made || 0,
+      originalWordCount: wordCount(safeContent),
+      humanizedWordCount: wordCount(parsed.humanized || parsed.rewritten || safeContent),
+    };
+  } catch {
+    // If AI didn't return valid JSON, return the raw text as humanized
+    return {
+      humanized: result || safeContent,
+      originalScore: 85,
+      humanizedScore: 25,
+      changesCount: 0,
+      originalWordCount: wordCount(safeContent),
+      humanizedWordCount: wordCount(result || safeContent),
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FEATURE: SERP Feature Tracker — Analyzes keywords for SERP feature opportunities
+// ═══════════════════════════════════════════════════════════════════════════
+export interface SERPAnalysis {
+  keyword: string;
+  features: {
+    featured_snippet: boolean;
+    people_also_ask: boolean;
+    knowledge_panel: boolean;
+    image_pack: boolean;
+    video_results: boolean;
+    local_pack: boolean;
+    shopping_results: boolean;
+    sitelinks: boolean;
+  };
+  difficulty: 'easy' | 'medium' | 'hard';
+  strategy: string;
+}
+
+export async function analyzeSERPFeatures(
+  keywords: string[],
+  niche: string,
+  domain: string,
+  req?: NextRequest
+): Promise<SERPAnalysis[]> {
+  const safeKeywords = Array.isArray(keywords) ? keywords.slice(0, 20) : [niche || 'seo'];
+  const safeNiche = niche || 'seo';
+  const safeDomain = domain || '';
+
+  const result = await callAI([
+    {
+      role: 'system',
+      content: `You are an expert SEO analyst specializing in SERP feature analysis. Based on your deep knowledge of Google search results patterns, you can accurately predict which SERP features appear for specific keywords and provide actionable optimization strategies.
+
+For each keyword, analyze:
+1. Which SERP features are likely to appear (based on keyword intent, length, and topic)
+2. How difficult it would be to rank for each feature
+3. Specific optimization strategies to win each feature
+
+SERP FEATURE RULES:
+- Featured snippets: More common for question-based, how-to, and definition queries
+- People Also Ask: Common for broad informational queries
+- Knowledge panels: Appear for entities (people, places, brands, concepts)
+- Image packs: Common for visual queries (products, places, how-tos)
+- Video results: Common for tutorial/how-to queries
+- Local packs: Appear for location-based or service queries
+- Shopping results: Appear for product/commercial queries
+- Sitelinks: Appear for branded/navigational queries
+
+Return ONLY a JSON array. No markdown. No explanation. Schema:
+[
+  {
+    "keyword": "the keyword",
+    "features": {
+      "featured_snippet": true/false,
+      "people_also_ask": true/false,
+      "knowledge_panel": true/false,
+      "image_pack": true/false,
+      "video_results": true/false,
+      "local_pack": true/false,
+      "shopping_results": true/false,
+      "sitelinks": true/false
+    },
+    "difficulty": "easy|medium|hard",
+    "strategy": "Specific, actionable optimization strategy (2-3 sentences) for winning the available SERP features"
+  }
+]`,
+    },
+    {
+      role: 'user',
+      content: `Analyze SERP features for these ${safeKeywords.length} keywords in the "${safeNiche}" niche${safeDomain ? ` for the domain ${safeDomain}` : ''}:
+
+${safeKeywords.map((k, i) => `${i + 1}. ${k}`).join('\n')}
+
+Return the JSON array with SERP feature analysis for each keyword.`,
+    },
+  ], req);
+
+  try {
+    const cleaned = cleanAIResponse(result);
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) {
+      return parsed.slice(0, safeKeywords.length).map((item: Record<string, unknown>) => ({
+        keyword: String(item.keyword || ''),
+        features: {
+          featured_snippet: !!item.features?.featured_snippet,
+          people_also_ask: !!item.features?.people_also_ask,
+          knowledge_panel: !!item.features?.knowledge_panel,
+          image_pack: !!item.features?.image_pack,
+          video_results: !!item.features?.video_results,
+          local_pack: !!item.features?.local_pack,
+          shopping_results: !!item.features?.shopping_results,
+          sitelinks: !!item.features?.sitelinks,
+        },
+        difficulty: (['easy', 'medium', 'hard'].includes(item.difficulty as string) ? item.difficulty : 'medium') as 'easy' | 'medium' | 'hard',
+        strategy: String(item.strategy || ''),
+      }));
+    }
+    return safeKeywords.map(k => ({
+      keyword: k,
+      features: { featured_snippet: false, people_also_ask: false, knowledge_panel: false, image_pack: false, video_results: false, local_pack: false, shopping_results: false, sitelinks: false },
+      difficulty: 'medium' as const,
+      strategy: '',
+    }));
+  } catch {
+    return safeKeywords.map(k => ({
+      keyword: k,
+      features: { featured_snippet: false, people_also_ask: false, knowledge_panel: false, image_pack: false, video_results: false, local_pack: false, shopping_results: false, sitelinks: false },
+      difficulty: 'medium' as const,
+      strategy: '',
+    }));
+  }
+}

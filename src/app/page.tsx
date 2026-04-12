@@ -21,6 +21,9 @@ import ArticleGenerator from '@/components/seo/ArticleGenerator';
 import GSCAnalyticsDashboard from '@/components/seo/GSCAnalyticsDashboard';
 import CompetitorImporter from '@/components/seo/CompetitorImporter';
 import PDFReportExport from '@/components/seo/PDFReportExport';
+import ContentHumanizer from '@/components/seo/ContentHumanizer';
+import SERPFeatureTracker from '@/components/seo/SERPFeatureTracker';
+import ContentGapAnalyzer from '@/components/seo/ContentGapAnalyzer';
 
 // Helper to safely parse keywords from D1 (stored as JSON string or comma-separated)
 function safeParseKeywords(raw: string | null | undefined): string[] {
@@ -261,6 +264,12 @@ function AuthenticatedApp() {
         return <CompetitorImporter />;
       case 14:
         return <PDFReportExport />;
+      case 15:
+        return <ContentHumanizer />;
+      case 16:
+        return <SERPFeatureTracker />;
+      case 17:
+        return <ContentGapAnalyzer />;
       case 99:
         return <AdminPanel />;
       default:

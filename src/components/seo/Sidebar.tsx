@@ -7,7 +7,7 @@ import {
   Check, Zap, Menu, X, Shield, Key, LogOut, User,
   BarChart3, Calendar, FileText, Network, Link2, Brain, PenTool,
   Globe, TrendingUp, FileDown, Save, Loader2, Cloud, CloudOff,
-  FolderOpen, ChevronDown, Pencil,
+  FolderOpen, ChevronDown, Pencil, Sparkles, Target, GitCompare,
 } from 'lucide-react';
 
 const workflowSteps = [
@@ -29,6 +29,9 @@ const toolSteps = [
   { num: 12, label: 'GSC Analytics', icon: TrendingUp, color: 'blue' },
   { num: 13, label: 'Competitor Import', icon: Globe, color: 'amber' },
   { num: 14, label: 'PDF Export', icon: FileDown, color: 'purple' },
+  { num: 15, label: 'Content Humanizer', icon: Sparkles, color: 'pink' },
+  { num: 16, label: 'SERP Tracker', icon: Target, color: 'cyan' },
+  { num: 17, label: 'Content Gaps', icon: GitCompare, color: 'orange' },
 ];
 
 export default function Sidebar() {
@@ -126,6 +129,9 @@ export default function Sidebar() {
     if (step === 12) return !!project; // GSC Analytics
     if (step === 13) return true; // Competitor Import (always accessible)
     if (step === 14) return !!project && pages.length > 0; // PDF Export
+    if (step === 15) return !!project; // Content Humanizer
+    if (step === 16) return !!project; // SERP Tracker
+    if (step === 17) return !!project && pages.length > 0; // Content Gaps
     if (step === 99) return true;
     return false;
   };
@@ -323,6 +329,9 @@ export default function Sidebar() {
               purple: { activeBg: 'bg-purple-500/15', activeText: 'text-purple-300', activeBorder: 'border-purple-500/30' },
               amber: { activeBg: 'bg-amber-500/15', activeText: 'text-amber-300', activeBorder: 'border-amber-500/30' },
               blue: { activeBg: 'bg-blue-500/15', activeText: 'text-blue-300', activeBorder: 'border-blue-500/30' },
+              pink: { activeBg: 'bg-pink-500/15', activeText: 'text-pink-300', activeBorder: 'border-pink-500/30' },
+              cyan: { activeBg: 'bg-cyan-500/15', activeText: 'text-cyan-300', activeBorder: 'border-cyan-500/30' },
+              orange: { activeBg: 'bg-orange-500/15', activeText: 'text-orange-300', activeBorder: 'border-orange-500/30' },
             };const color = colorMap[step.color] || colorMap.emerald;
 
             return (

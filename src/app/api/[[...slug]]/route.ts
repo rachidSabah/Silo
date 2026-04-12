@@ -13,7 +13,7 @@ import {
   getActiveAISetting, getAISettingsByUser, upsertAISetting, deleteAISetting, setActiveAISetting,
   getGSCMetricsBySilo, updatePageGSCMetrics,
 } from '@/lib/db';
-import { callAI, expandKeywords, generateSilos, generatePages, suggestInternalLinks, groupKeywords, mapSearchIntent, analyzeContentGap, generateContentBrief, generateSiloAwareArticle } from '@/lib/ai';
+import { callAI, expandKeywords, generateSilos, generatePages, suggestInternalLinks, groupKeywords, mapSearchIntent, analyzeContentGap, generateContentBrief, generateSiloAwareArticle, humanizeContent, analyzeSERPFeatures } from '@/lib/ai';
 import { scrapeCompetitorSite, buildScrapedPayloadForAI } from '@/lib/edge-scraper';
 import { processInBatches, BATCH_SIZES, retryWithBackoff } from '@/lib/concurrency';
 
@@ -91,6 +91,8 @@ async function handleRequest(req: NextRequest) {
       case path === 'ai/content-brief' && m === 'POST': { const d = await body(req); const result = await generateContentBrief(d.title || d.pageTitle, d.type || d.pageType, d.siloName, d.keywords, d.siblingPages || [], d.niche, req); return json({ brief: result }); }
       case path === 'ai/generate-article' && m === 'POST': { const d = await body(req); const sc = d.siloContext || {}; const safeSiloContext = { siloName: sc.siloName || 'General', pillarPage: sc.pillarPage || null, siblingPages: Array.isArray(sc.siblingPages) ? sc.siblingPages : [], internalLinks: Array.isArray(sc.internalLinks) ? sc.internalLinks : [], brandVoice: sc.brandVoice || 'Professional and authoritative', niche: sc.niche || '', searchIntent: sc.searchIntent || 'Informational', suggestedAnchor: sc.suggestedAnchor || undefined, }; const result = await generateSiloAwareArticle(d.pageTitle || d.title, d.pageType || d.type, d.pageKeywords || d.keywords || [], safeSiloContext, d.wordCountTarget || 2000, req); return json({ article: result }); }
       case path === 'ai/internal-links' && m === 'POST': { const d = await body(req); const result = await suggestInternalLinks(d.pages, d.silos, req); return json(result); }
+      case path === 'ai/humanize-content' && m === 'POST': { const d = await body(req); const result = await humanizeContent(d.content, d.level, d.contentType, d.preserveKeywords !== false, req); return json({ result }); }
+      case path === 'ai/serp-features' && m === 'POST': { const d = await body(req); const keywords = Array.isArray(d.keywords) ? d.keywords : (d.keywords || '').split('\n').map((k: string) => k.trim()).filter(Boolean); const results = await analyzeSERPFeatures(keywords, d.niche || '', d.domain || '', req); return json({ results }); }
       case path === 'ai/bulk-generate' && m === 'POST': { const d = await body(req); const safeBulkContext = { siloName: d.siloName || 'General', pillarPage: null, siblingPages: [], internalLinks: [], brandVoice: d.brandVoice || 'Professional and authoritative', niche: d.niche || '', searchIntent: 'Informational', suggestedAnchor: undefined, }; const result = await generateSiloAwareArticle(d.pages?.[0]?.title || '', d.pages?.[0]?.type || 'pillar', d.pages?.[0]?.keywords || [], safeBulkContext, 2000, req); return json({ article: result }); }
       // Import/Export
       case path === 'import-competitor' && m === 'POST': return await handleImportCompetitor(req);
