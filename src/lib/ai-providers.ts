@@ -24,12 +24,21 @@ export const AI_PROVIDERS: Record<string, AIProvider> = {
   gemini: {
     name: 'Google Gemini',
     models: [
-      // Stable Gemini models only — no preview/unreleased models
+      // ── Gemini 3.1 (Latest previews — free tier available on AI Studio) ──
+      'gemini-3.1-pro-preview',
+      'gemini-3.1-flash-lite-preview',
+      // ── Gemini 3 (Preview — free tier available on AI Studio) ──
+      'gemini-3-flash-preview',
+      'gemini-3-pro-preview',
+      // ── Gemini 2.5 (Stable — free tier on AI Studio) ──
+      'gemini-2.5-pro',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      // ── Gemini 2.0 (Stable — free tier, shutting down June 2026) ──
       'gemini-2.0-flash',
-      'gemini-1.5-pro',
-      'gemini-1.5-flash',
+      'gemini-2.0-flash-lite',
     ],
-    defaultModel: 'gemini-2.0-flash',
+    defaultModel: 'gemini-2.5-flash',
   },
   claude: {
     name: 'Anthropic Claude',

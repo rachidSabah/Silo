@@ -31,11 +31,14 @@ async function callOpenAI(apiKey: string, model: string, messages: ChatMessage[]
 // IMPORTANT: All mapped values must be REAL, STABLE models that exist in the Gemini API.
 // Never map to preview or hallucinated model names.
 const GEMINI_MODEL_MAP: Record<string, string> = {
-  // Legacy alias
-  'gemini-pro': 'gemini-2.0-flash',
-  // Short aliases — map to stable models only
-  'gemini-1.5-flash-8b': 'gemini-1.5-flash',
-  'gemini-2.0-flash-lite': 'gemini-2.0-flash',
+  // Legacy aliases — map to current stable models
+  'gemini-pro': 'gemini-2.5-flash',
+  'gemini-1.5-pro': 'gemini-2.5-pro',
+  'gemini-1.5-flash': 'gemini-2.5-flash',
+  'gemini-1.5-flash-8b': 'gemini-2.5-flash-lite',
+  // Short aliases
+  'gemini-flash-latest': 'gemini-2.5-flash',
+  'gemini-pro-latest': 'gemini-2.5-pro',
 };
 
 async function callGemini(apiKey: string, model: string, messages: ChatMessage[]): Promise<string> {
@@ -133,7 +136,7 @@ export async function callAI(messages: ChatMessage[], req?: NextRequest): Promis
             aiPromise = callOpenAI(api_key, model || 'gpt-4o-mini', messages);
             break;
           case 'gemini':
-            aiPromise = callGemini(api_key, model || 'gemini-2.0-flash', messages);
+            aiPromise = callGemini(api_key, model || 'gemini-2.5-flash', messages);
             break;
           case 'claude':
             aiPromise = callClaude(api_key, model || 'claude-sonnet-4-20250514', messages);
@@ -151,7 +154,7 @@ export async function callAI(messages: ChatMessage[], req?: NextRequest): Promis
         } catch (err) {
           if (err instanceof Error && err.message.includes('timed out')) {
             console.error(`[callAI] ${provider} call timed out after ${AI_CALL_TIMEOUT_MS}ms`);
-            throw new Error(`AI request timed out. The ${provider} API took too long to respond. Try using a faster model (e.g., gemini-2.0-flash or gpt-4o-mini) or reduce the amount of data being processed.`);
+            throw new Error(`AI request timed out. The ${provider} API took too long to respond. Try using a faster model (e.g., gemini-2.5-flash-lite or gpt-4o-mini) or reduce the amount of data being processed.`);
           }
           throw err;
         }
