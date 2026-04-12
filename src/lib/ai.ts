@@ -909,16 +909,151 @@ function validateSearchIntent(intent: string): string {
 }
 
 
+// ===== Internal Linking Engine — Hybrid AI + Algorithmic with 524 Fix =====
+
+export interface InternalLinkResult {
+  from: string;
+  to: string;
+  anchor: string;
+  type: 'in-silo' | 'cross-silo' | 'bleed';
+}
+
+export interface CannibalizationIssue {
+  keyword: string;
+  pages: { id: string; title: string; slug: string }[];
+}
+
+export interface InternalLinksResponse {
+  links: InternalLinkResult[];
+  cannibalization: CannibalizationIssue[];
+  bleedLinks: InternalLinkResult[];
+  source: 'ai' | 'algorithmic';
+}
+
+// Timeout wrapper — keeps AI calls under Cloudflare's 100s edge limit
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`AI call timed out after ${ms}ms`)), ms);
+    promise.then(
+      (val) => { clearTimeout(timer); resolve(val); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
+
+// Algorithmic link generator — instant, no AI needed
+function generateAlgorithmicLinks(
+  pages: { id: string; title: string; slug: string; type: string; keywords?: string[]; silo_id?: string | null }[],
+  silos: { id: string; name: string }[]
+): InternalLinkResult[] {
+  const links: InternalLinkResult[] = [];
+  const pageKeywordSets = pages.map(p => {
+    const kws = ((p as Record<string, unknown>).keywords as string[] || []).map(k => k.toLowerCase().trim()).filter(Boolean);
+    const titleWords = p.title.toLowerCase().split(/[\s\-]+/).filter(w => w.length > 3);
+    return new Set([...kws, ...titleWords]);
+  });
+
+  // 1. In-silo links: pillar -> cluster/blog in same silo
+  const pagesBySilo = new Map<string, typeof pages>();
+  for (const page of pages) {
+    const sid = page.silo_id || '__none__';
+    if (!pagesBySilo.has(sid)) pagesBySilo.set(sid, []);
+    pagesBySilo.get(sid)!.push(page);
+  }
+
+  for (const [siloId, siloPages] of pagesBySilo) {
+    if (siloId === '__none__') continue;
+    const pillars = siloPages.filter(p => p.type === 'pillar');
+    const others = siloPages.filter(p => p.type !== 'pillar');
+
+    for (const pillar of pillars) {
+      for (const other of others) {
+        const pillarIdx = pages.indexOf(pillar);
+        const otherIdx = pages.indexOf(other);
+        const overlap = [...pageKeywordSets[otherIdx]].filter(k => pageKeywordSets[pillarIdx].has(k)).length;
+        if (overlap > 0) {
+          links.push({ from: pillar.id, to: other.id, anchor: other.title.length > 50 ? other.title.substring(0, 47) + '...' : other.title, type: 'in-silo' });
+        }
+      }
+    }
+
+    const clusters = siloPages.filter(p => p.type === 'cluster');
+    for (let i = 0; i < clusters.length; i++) {
+      for (let j = i + 1; j < clusters.length; j++) {
+        const ci = pages.indexOf(clusters[i]);
+        const cj = pages.indexOf(clusters[j]);
+        const overlap = [...pageKeywordSets[cj]].filter(k => pageKeywordSets[ci].has(k)).length;
+        if (overlap >= 2) {
+          links.push({ from: clusters[i].id, to: clusters[j].id, anchor: clusters[j].title.length > 50 ? clusters[j].title.substring(0, 47) + '...' : clusters[j].title, type: 'in-silo' });
+        }
+      }
+    }
+  }
+
+  // 2. Cross-silo links
+  for (let i = 0; i < pages.length; i++) {
+    for (let j = i + 1; j < pages.length; j++) {
+      const p1 = pages[i], p2 = pages[j];
+      const s1 = p1.silo_id || '__none__', s2 = p2.silo_id || '__none__';
+      if (s1 === s2 || s1 === '__none__' || s2 === '__none__') continue;
+      const overlap = [...pageKeywordSets[j]].filter(k => pageKeywordSets[i].has(k)).length;
+      if (overlap >= 2) {
+        links.push({ from: p1.id, to: p2.id, anchor: p2.title.length > 50 ? p2.title.substring(0, 47) + '...' : p2.title, type: 'cross-silo' });
+      }
+    }
+  }
+
+  return [...links.filter(l => l.type === 'in-silo').slice(0, 60), ...links.filter(l => l.type === 'cross-silo').slice(0, 20)];
+}
+
+function detectCannibalization(pages: { id: string; title: string; slug: string; keywords?: string[] }[]): CannibalizationIssue[] {
+  const issues: CannibalizationIssue[] = [];
+  const keywordPageMap = new Map<string, { id: string; title: string; slug: string }[]>();
+  for (const page of pages) {
+    const kws = ((page as Record<string, unknown>).keywords as string[] || []).map(k => k.toLowerCase().trim()).filter(Boolean);
+    for (const kw of kws) {
+      if (!keywordPageMap.has(kw)) keywordPageMap.set(kw, []);
+      keywordPageMap.get(kw)!.push({ id: page.id, title: page.title, slug: page.slug });
+    }
+  }
+  for (const [keyword, competingPages] of keywordPageMap) {
+    if (competingPages.length >= 2) issues.push({ keyword, pages: competingPages });
+  }
+  issues.sort((a, b) => b.pages.length - a.pages.length);
+  return issues;
+}
+
+function detectBleedLinks(pages: { id: string; type: string; silo_id?: string | null }[], links: InternalLinkResult[]): InternalLinkResult[] {
+  return links.filter(link => {
+    const fromPage = pages.find(p => p.id === link.from);
+    const toPage = pages.find(p => p.id === link.to);
+    if (!fromPage || !toPage) return false;
+    return fromPage.silo_id !== toPage.silo_id && (fromPage.type === 'pillar' || fromPage.type === 'cluster');
+  });
+}
+
 export async function suggestInternalLinks(
-  pages: { id: string; title: string; slug: string; type: string; silo_id?: string | null }[],
+  pages: { id: string; title: string; slug: string; type: string; keywords?: string[]; silo_id?: string | null }[],
   silos: { id: string; name: string }[],
   req?: NextRequest
-): Promise<{ from: string; to: string; anchor: string }[]> {
+): Promise<InternalLinksResponse> {
   const safePages = Array.isArray(pages) ? pages : [];
   const safeSilos = Array.isArray(silos) ? silos : [];
-  if (safePages.length === 0) return [];
-  const content = await callAI([
-    { role: 'system', content: `You are a Principal SEO Architect specializing in internal linking strategy. Given a list of pages and their silos, suggest internal links between pages. Prioritize:
+  if (safePages.length === 0) return { links: [], cannibalization: [], bleedLinks: [], source: 'algorithmic' };
+
+  // Always compute algorithmic baseline (instant, no network)
+  const algoLinks = generateAlgorithmicLinks(safePages, safeSilos);
+  const cannibalization = detectCannibalization(safePages);
+  const bleedLinks = detectBleedLinks(safePages, algoLinks);
+
+  // Try AI with timeout — batch to max 15 pages to stay under Cloudflare's 100s limit
+  const BATCH_SIZE = 15;
+  const batchedPages = safePages.slice(0, BATCH_SIZE).map(p => ({ id: p.id, title: p.title, slug: p.slug, type: p.type, silo_id: p.silo_id }));
+
+  try {
+    const content = await withTimeout(
+      callAI([
+        { role: 'system', content: `You are a Principal SEO Architect specializing in internal linking strategy. Given a list of pages and their silos, suggest 10-20 internal links. Prioritize:
 1. Links from pillar pages to cluster/blog pages in the same silo
 2. Links between related cluster pages in the same silo
 3. Cross-silo links where topics overlap (only when contextually natural)
@@ -930,9 +1065,32 @@ Rules:
 - Maximum 3 links from any single page
 
 Return ONLY a JSON array of link objects with "from" (page id), "to" (page id), and "anchor" (link anchor text). No other text. No markdown fences.` },
-    { role: 'user', content: `Suggest internal links for these pages:\n${JSON.stringify(safePages.slice(0, 50))}\nSilos: ${JSON.stringify(safeSilos)}` },
-  ], req);
-  return extractArray<{ from: string; to: string; anchor: string }>(content, 'links', []);
+        { role: 'user', content: `Suggest internal links for these pages:\n${JSON.stringify(batchedPages)}\nSilos: ${JSON.stringify(safeSilos)}` },
+      ], req),
+      55000 // 55s timeout — stays under Cloudflare's 100s edge limit
+    );
+
+    const aiLinksRaw = extractArray<{ from: string; to: string; anchor: string }>(content, 'links', []);
+    if (Array.isArray(aiLinksRaw) && aiLinksRaw.length > 0) {
+      const aiLinks: InternalLinkResult[] = aiLinksRaw.map(l => {
+        const fromPage = safePages.find(p => p.id === l.from);
+        const toPage = safePages.find(p => p.id === l.to);
+        const isCrossSilo = fromPage && toPage && fromPage.silo_id !== toPage.silo_id;
+        return { from: l.from, to: l.to, anchor: l.anchor, type: isCrossSilo ? 'cross-silo' : 'in-silo' };
+      });
+      // Merge AI + algorithmic, deduplicating
+      const aiFromTo = new Set(aiLinks.map(l => `${l.from}->${l.to}`));
+      const extraAlgoLinks = algoLinks.filter(l => !aiFromTo.has(`${l.from}->${l.to}`));
+      const mergedLinks = [...aiLinks, ...extraAlgoLinks];
+      const mergedBleed = detectBleedLinks(safePages, mergedLinks);
+      return { links: mergedLinks, cannibalization, bleedLinks: mergedBleed, source: 'ai' as const };
+    }
+  } catch (error) {
+    console.warn('AI internal links failed, using algorithmic fallback:', error);
+  }
+
+  // Fallback: algorithmic only (always works)
+  return { links: algoLinks, cannibalization, bleedLinks, source: 'algorithmic' };
 }
 
 // ===== NEW AI FUNCTIONS =====
