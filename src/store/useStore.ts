@@ -317,11 +317,13 @@ export const useStore = create<AppState>()(
         isDirty: false, lastSavedAt: null, isSaving: false,
       }),
     }),
-    {
+{
       name: 'siloforge-store',
       partialize: (state) => ({
         user: state.user,
         token: state.token,
+        savedProjectId: state.savedProjectId,
+        currentStep: state.currentStep,
       }),
     }
   )

@@ -102,6 +102,21 @@ async function callDeepSeek(apiKey: string, model: string, messages: ChatMessage
   return content || reasoning;
 }
 
+// Timeout wrapper — keeps AI calls under Cloudflare's 100s edge function limit
+// We use 55s to leave headroom for JSON parsing, DB queries, and response sending
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`AI request timed out after ${ms}ms. Try using fewer pages or a faster model.`)), ms);
+    promise.then(
+      (val) => { clearTimeout(timer); resolve(val); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
+
+// Maximum timeout for any single AI call — must stay under Cloudflare's 100s edge limit
+const AI_CALL_TIMEOUT_MS = 55_000;
+
 // Main AI call function - resolves provider from user settings
 export async function callAI(messages: ChatMessage[], req?: NextRequest): Promise<string> {
   // Try to get user's active AI setting from the request's auth token
@@ -111,17 +126,34 @@ export async function callAI(messages: ChatMessage[], req?: NextRequest): Promis
       const setting = await getActiveAISetting(user.userId);
       if (setting && setting.api_key) {
         const { provider, api_key, model } = setting;
+        let aiPromise: Promise<string>;
+
         switch (provider) {
           case 'openai':
-            return await callOpenAI(api_key, model || 'gpt-4o-mini', messages);
+            aiPromise = callOpenAI(api_key, model || 'gpt-4o-mini', messages);
+            break;
           case 'gemini':
-            return await callGemini(api_key, model || 'gemini-2.0-flash', messages);
+            aiPromise = callGemini(api_key, model || 'gemini-2.0-flash', messages);
+            break;
           case 'claude':
-            return await callClaude(api_key, model || 'claude-sonnet-4-20250514', messages);
+            aiPromise = callClaude(api_key, model || 'claude-sonnet-4-20250514', messages);
+            break;
           case 'deepseek':
-            return await callDeepSeek(api_key, model || 'deepseek-chat', messages);
+            aiPromise = callDeepSeek(api_key, model || 'deepseek-chat', messages);
+            break;
           default:
             throw new Error(`Unknown AI provider: ${provider}. Please check your AI settings.`);
+        }
+
+        // Wrap ALL AI calls with timeout to prevent Cloudflare 524 errors
+        try {
+          return await withTimeout(aiPromise, AI_CALL_TIMEOUT_MS);
+        } catch (err) {
+          if (err instanceof Error && err.message.includes('timed out')) {
+            console.error(`[callAI] ${provider} call timed out after ${AI_CALL_TIMEOUT_MS}ms`);
+            throw new Error(`AI request timed out. The ${provider} API took too long to respond. Try using a faster model (e.g., gemini-2.0-flash or gpt-4o-mini) or reduce the amount of data being processed.`);
+          }
+          throw err;
         }
       } else {
         throw new Error('No active AI provider configured. Please add an API key in Admin > AI Settings.');
@@ -930,17 +962,6 @@ export interface InternalLinksResponse {
   source: 'ai' | 'algorithmic';
 }
 
-// Timeout wrapper — keeps AI calls under Cloudflare's 100s edge limit
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`AI call timed out after ${ms}ms`)), ms);
-    promise.then(
-      (val) => { clearTimeout(timer); resolve(val); },
-      (err) => { clearTimeout(timer); reject(err); }
-    );
-  });
-}
-
 // Algorithmic link generator — instant, no AI needed
 function generateAlgorithmicLinks(
   pages: { id: string; title: string; slug: string; type: string; keywords?: string[]; silo_id?: string | null }[],
@@ -1051,8 +1072,8 @@ export async function suggestInternalLinks(
   const batchedPages = safePages.slice(0, BATCH_SIZE).map(p => ({ id: p.id, title: p.title, slug: p.slug, type: p.type, silo_id: p.silo_id }));
 
   try {
-    const content = await withTimeout(
-      callAI([
+    // callAI() already has a global 55s timeout — no need to double-wrap
+    const content = await callAI([
         { role: 'system', content: `You are a Principal SEO Architect specializing in internal linking strategy. Given a list of pages and their silos, suggest 10-20 internal links. Prioritize:
 1. Links from pillar pages to cluster/blog pages in the same silo
 2. Links between related cluster pages in the same silo
@@ -1066,9 +1087,7 @@ Rules:
 
 Return ONLY a JSON array of link objects with "from" (page id), "to" (page id), and "anchor" (link anchor text). No other text. No markdown fences.` },
         { role: 'user', content: `Suggest internal links for these pages:\n${JSON.stringify(batchedPages)}\nSilos: ${JSON.stringify(safeSilos)}` },
-      ], req),
-      55000 // 55s timeout — stays under Cloudflare's 100s edge limit
-    );
+      ], req);
 
     const aiLinksRaw = extractArray<{ from: string; to: string; anchor: string }>(content, 'links', []);
     if (Array.isArray(aiLinksRaw) && aiLinksRaw.length > 0) {

@@ -22,6 +22,18 @@ import GSCAnalyticsDashboard from '@/components/seo/GSCAnalyticsDashboard';
 import CompetitorImporter from '@/components/seo/CompetitorImporter';
 import PDFReportExport from '@/components/seo/PDFReportExport';
 
+// Helper to safely parse keywords from D1 (stored as JSON string or comma-separated)
+function safeParseKeywords(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    return [String(parsed)];
+  } catch {
+    return raw.split(',').map((s: string) => s.trim()).filter(Boolean);
+  }
+}
+
 export default function Home() {
   const { currentStep, user, token, setUser, setToken, logout } = useStore();
 
@@ -63,6 +75,85 @@ export default function Home() {
       validatedRef.current = false;
     }
   }, [token, user, logout, setUser]);
+
+  // ===== CRITICAL: Reload project data from D1 after page refresh =====
+  // The Zustand store only persists user/token/savedProjectId/currentStep to localStorage.
+  // All project data (silos, pages, links) must be reloaded from D1 on refresh.
+  const projectLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!token || !user || projectLoadedRef.current) return;
+
+    const { savedProjectId, setProject, setSilos, setPages, setInternalLinks, setSavedProjectId, setStep } = useStore.getState();
+
+    if (savedProjectId && !projectLoadedRef.current) {
+      projectLoadedRef.current = true;
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+
+      // Load project, silos, pages, and internal links from D1
+      Promise.all([
+        fetch(`/api/projects/${savedProjectId}`, { headers }).then(r => r.json()).catch(() => null),
+        fetch(`/api/silos?project_id=${savedProjectId}`, { headers }).then(r => r.json()).catch(() => []),
+        fetch(`/api/pages?project_id=${savedProjectId}`, { headers }).then(r => r.json()).catch(() => []),
+        fetch(`/api/internal-links?project_id=${savedProjectId}`, { headers }).then(r => r.json()).catch(() => []),
+      ])
+        .then(([proj, dbSilos, dbPages, dbLinks]) => {
+          if (proj && proj.id) {
+            setProject({
+              id: proj.id,
+              name: proj.name || '',
+              domain: proj.domain || '',
+              language: proj.language || 'en',
+              niche: proj.niche || '',
+              seedKeywords: safeParseKeywords(proj.seed_keywords),
+            });
+            setSilos((dbSilos || []).map((s: any) => ({
+              id: s.id,
+              projectId: s.project_id,
+              name: s.name,
+              keywords: safeParseKeywords(s.keywords),
+            })));
+            setPages((dbPages || []).map((p: any) => ({
+              id: p.id,
+              projectId: p.project_id,
+              siloId: p.silo_id,
+              title: p.title || '',
+              slug: p.slug || '',
+              metaDescription: p.meta_description || '',
+              keywords: safeParseKeywords(p.keywords),
+              type: (['pillar', 'cluster', 'blog', 'category', 'landing'].includes(p.type) ? p.type : 'blog') as 'pillar' | 'cluster' | 'blog' | 'category' | 'landing',
+              parentId: p.parent_id,
+              status: (['draft', 'in_progress', 'review', 'published'].includes(p.status || '') ? p.status : 'draft') as 'draft' | 'in_progress' | 'review' | 'published',
+              content: p.content || '',
+              wordCount: p.word_count || 0,
+              targetKeyword: p.target_keyword || undefined,
+              searchIntent: p.search_intent || undefined,
+              suggestedParentKeyword: p.suggested_parent_keyword || undefined,
+            })));
+            setInternalLinks((dbLinks || []).map((l: any) => ({
+              id: l.id,
+              projectId: l.project_id,
+              fromPageId: l.from_page_id,
+              toPageId: l.to_page_id,
+              anchor: l.anchor,
+            })));
+            // Mark as saved (data just came from DB)
+            useStore.getState().markSaved();
+            console.log('[SiloForge] Project data reloaded from D1 after refresh');
+          } else {
+            // Project not found in DB — clear the stale savedProjectId
+            setSavedProjectId(null);
+            setStep(1);
+          }
+        })
+        .catch((err) => {
+          console.error('[SiloForge] Failed to reload project data:', err);
+        });
+    } else if (!savedProjectId && !projectLoadedRef.current) {
+      // No saved project — user needs to create or select one
+      // Stay on dashboard (step 0) or project setup (step 1)
+      projectLoadedRef.current = true;
+    }
+  }, [token, user]);
 
   // Global 401 interceptor: any API call returning 401 should force logout
   useEffect(() => {
