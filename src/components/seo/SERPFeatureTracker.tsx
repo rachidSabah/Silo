@@ -162,7 +162,7 @@ export default function SERPFeatureTracker() {
     setExpandedKeyword(null);
 
     try {
-      const res = await authFetch('/api/ai/serp-features', {
+      const res = await authFetch('/api/ai/serp-features', token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -170,7 +170,7 @@ export default function SERPFeatureTracker() {
           niche: project.niche,
           domain: project.domain,
         }),
-      }, token);
+      });
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
