@@ -4,9 +4,49 @@ export interface AIProvider {
   name: string;
   models: string[];
   defaultModel: string;
+  description?: string;
+  free?: boolean;
 }
 
 export const AI_PROVIDERS: Record<string, AIProvider> = {
+  openrouter: {
+    name: 'OpenRouter',
+    description: 'Access 200+ models from one API. Free models available!',
+    free: true,
+    models: [
+      // ── Free Models (no cost, rate-limited) ──
+      'google/gemma-3-27b-it:free',
+      'google/gemma-3-12b-it:free',
+      'google/gemma-3-4b-it:free',
+      'meta-llama/llama-4-maverick:free',
+      'meta-llama/llama-4-scout:free',
+      'meta-llama/llama-3.3-70b-instruct:free',
+      'mistralai/mistral-small-3.1-24b-instruct:free',
+      'qwen/qwen3-32b:free',
+      'qwen/qwen3-14b:free',
+      'qwen/qwen3-8b:free',
+      'qwen/qwen3-4b:free',
+      'deepseek/deepseek-r1-0528:free',
+      'deepseek/deepseek-chat-v3-0324:free',
+      'microsoft/phi-4:free',
+      'nvidia/llama-3.1-nemotron-70b-instruct:free',
+      'moonshotai/kimi-vl-a3b-thinking:free',
+      'rekaai/reka-flash-3:free',
+      'huggingfaceh4/zephyr-7b-beta:free',
+      // ── Popular Paid Models (pay-per-token) ──
+      'openai/gpt-4o',
+      'openai/gpt-4o-mini',
+      'openai/o3-mini',
+      'anthropic/claude-sonnet-4',
+      'anthropic/claude-3.5-sonnet',
+      'google/gemini-2.5-pro',
+      'google/gemini-2.5-flash',
+      'meta-llama/llama-4-maverick',
+      'deepseek/deepseek-chat',
+      'deepseek/deepseek-r1',
+    ],
+    defaultModel: 'google/gemma-3-27b-it:free',
+  },
   openai: {
     name: 'OpenAI',
     models: [

@@ -457,9 +457,9 @@ function AISettingsPanel() {
   const [settings, setSettings] = useState<Array<{ id: string; provider: string; api_key: string; model: string; is_active: number }>>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [provider, setProvider] = useState('openai');
+  const [provider, setProvider] = useState('openrouter');
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('gpt-4o-mini');
+  const [model, setModel] = useState('google/gemma-3-27b-it:free');
   const [makeActive, setMakeActive] = useState(true);
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showKey, setShowKey] = useState(false);
@@ -579,9 +579,14 @@ function AISettingsPanel() {
                 className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
               >
                 {Object.entries(AI_PROVIDERS).map(([key, p]) => (
-                  <option key={key} value={key}>{p.name}</option>
+                  <option key={key} value={key}>
+                    {p.name}{p.free ? ' (Free Models Available)' : ''}
+                  </option>
                 ))}
               </select>
+              {AI_PROVIDERS[provider]?.description && (
+                <p className="text-[11px] text-slate-500 mt-1">{AI_PROVIDERS[provider].description}</p>
+              )}
             </div>
             <div>
               <label className="text-xs text-slate-400 mb-1 block">Model</label>
@@ -602,9 +607,20 @@ function AISettingsPanel() {
               type={showKey ? 'text' : 'password'}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-... / AIza... / sk-ant-..."
+              placeholder={
+                provider === 'openrouter' ? 'sk-or-v1-...' :
+                provider === 'openai' ? 'sk-...' :
+                provider === 'gemini' ? 'AIza...' :
+                provider === 'claude' ? 'sk-ant-...' :
+                provider === 'deepseek' ? 'sk-...' : 'API Key'
+              }
               className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
             />
+            {provider === 'openrouter' && (
+              <p className="text-[11px] text-emerald-400/70 mt-1">
+                Get a free API key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline hover:text-emerald-300">openrouter.ai/keys</a> — free models work with $0 balance.
+              </p>
+            )}
             <button
               onClick={() => setShowKey(!showKey)}
               className="text-slate-500 text-xs mt-1 hover:text-slate-300 transition-colors flex items-center gap-1"
@@ -651,9 +667,12 @@ function AISettingsPanel() {
               }`}
             >
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <p className="text-white font-medium text-sm">{AI_PROVIDERS[s.provider]?.name || s.provider}</p>
                   <span className="text-slate-500 text-xs">{s.model}</span>
+                  {AI_PROVIDERS[s.provider]?.free && (
+                    <span className="px-1.5 py-0.5 bg-emerald-500/15 text-emerald-400 rounded text-[10px] font-medium">Free Models</span>
+                  )}
                   {s.is_active && (
                     <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 rounded text-[10px] font-medium">Active</span>
                   )}
@@ -695,8 +714,16 @@ function AISettingsPanel() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {Object.entries(AI_PROVIDERS).map(([key, p]) => (
             <div key={key} className="p-2 bg-slate-900 rounded-lg">
-              <p className="text-white text-sm font-medium">{p.name}</p>
-              <p className="text-slate-500 text-xs">Models: {p.models.join(', ')}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-white text-sm font-medium">{p.name}</p>
+                {p.free && (
+                  <span className="px-1.5 py-0.5 bg-emerald-500/15 text-emerald-400 rounded text-[9px] font-semibold">FREE</span>
+                )}
+              </div>
+              {p.description && (
+                <p className="text-slate-400 text-[11px] mt-0.5">{p.description}</p>
+              )}
+              <p className="text-slate-500 text-xs mt-0.5">{p.models.length} models</p>
             </div>
           ))}
         </div>

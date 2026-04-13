@@ -1,4 +1,4 @@
-// AI abstraction supporting multiple providers: OpenAI, Google Gemini, Anthropic Claude, DeepSeek
+// AI abstraction supporting multiple providers: OpenRouter, OpenAI, Google Gemini, Anthropic Claude, DeepSeek
 // Uses API keys stored in user settings (D1 database)
 
 import { getActiveAISetting } from '@/lib/db';
@@ -26,6 +26,31 @@ async function callOpenAI(apiKey: string, model: string, messages: ChatMessage[]
   }
   const data = await res.json();
   return data.choices?.[0]?.message?.content || '';
+}
+
+async function callOpenRouter(apiKey: string, model: string, messages: ChatMessage[]): Promise<string> {
+  // OpenRouter uses OpenAI-compatible API format
+  // Supports free models (e.g., google/gemma-3-27b-it:free) and paid models
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': 'https://siloforge.pages.dev',
+      'X-Title': 'SiloForge',
+    },
+    body: JSON.stringify({ model, messages, temperature: 0.7 }),
+  });
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`OpenRouter API error (${res.status}): ${errBody.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content || '';
+  if (!content && data.error) {
+    throw new Error(`OpenRouter error: ${data.error.message || JSON.stringify(data.error)}`);
+  }
+  return content;
 }
 
 // Map deprecated/legacy Gemini model names to current stable ones
@@ -163,6 +188,9 @@ export async function callAI(messages: ChatMessage[], req?: NextRequest): Promis
         let aiPromise: Promise<string>;
 
         switch (provider) {
+          case 'openrouter':
+            aiPromise = callOpenRouter(api_key, model || 'google/gemma-3-27b-it:free', messages);
+            break;
           case 'openai':
             aiPromise = callOpenAI(api_key, model || 'gpt-4o-mini', messages);
             break;
