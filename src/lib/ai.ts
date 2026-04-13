@@ -1761,7 +1761,7 @@ export interface WPAuditResult {
 }
 
 export async function auditWordPress(
-  posts: Array<{ id: number; title: string; link: string; content_summary: string }>,
+  posts: Array<{ id: number; title: string; link: string; content_summary?: string }>,
   domain: string,
   req?: NextRequest,
 ): Promise<WPAuditResult> {
@@ -1774,35 +1774,30 @@ export async function auditWordPress(
 
   if (!posts || posts.length === 0) return emptyResult;
 
-  // Cap at 150 posts max to keep prompt within AI token limits
-  const cappedPosts = posts.slice(0, 150);
+  // Cap at 80 posts max — titles + URLs are enough for silo clustering
+  // This keeps the prompt small enough for free/slow models to process within 55s
+  const cappedPosts = posts.slice(0, 80);
 
-  // Use compact JSON (no indentation) to reduce token count
-  // Drop content_summary entirely if we have many posts — titles + URLs are enough for silo analysis
-  const trimmedPosts = cappedPosts.map(p => ({
-    id: p.id,
-    title: p.title,
-    url: p.link,
-    // Only include content_summary if we have fewer than 80 posts
-    ...(cappedPosts.length < 80 ? { content_summary: p.content_summary.slice(0, 150) } : {}),
-  }));
-
+  // Ultra-compact format: use short keys to minimize tokens
+  // t=title, u=url — AI will map these to the full output format
+  const trimmedPosts = cappedPosts.map(p => ({ id: p.id, t: p.title, u: p.link }));
   const postsJSON = JSON.stringify(trimmedPosts);
 
-  const systemPrompt = `You are an Enterprise Technical SEO Auditor analyzing a WordPress site "${domain}" that lacks proper silo structure.
+  const systemPrompt = `You are an Enterprise SEO Auditor. Site "${domain}" lacks silo structure. Cluster the posts into silos.
 
-Generate a "Silo Rehab Plan" as a JSON object with exactly these 4 keys:
+Input format: each post has {id, t(=title), u(=url)}. Map t→title, u→url in output.
 
-1. "proposed_silos": Array of silos. Each: {"name":"2-4 words","pillar":{title,url,id},"clusters":[{title,url,id}],"unassigned":[{title,url,id}]}
-2. "orphaned_content": Posts not fitting any silo. Each: {title,url,id,reason}
-3. "internal_link_plan": Link actions. Each: {"from_page":{title,url,id},"to_page":{title,url,id},"anchor_text":"text","reason":"why"}
-4. "content_gaps": Missing pages. Each: {"type":"pillar|cluster|blog","suggested_title":"title","suggested_silo":"name","target_keyword":"kw","search_intent":"Informational|Commercial|Transactional","priority":"high|medium|low"}
+Output ONLY a JSON object with these keys:
+1. "proposed_silos": [{"name":"2-4 words","pillar":{title,url,id},"clusters":[{title,url,id}],"unassigned":[{title,url,id}]}]
+2. "orphaned_content": [{title,url,id,reason}]
+3. "internal_link_plan": [{"from_page":{title,url,id},"to_page":{title,url,id},"anchor_text":"text","reason":"why"}]
+4. "content_gaps": [{"type":"pillar|cluster|blog","suggested_title":"t","suggested_silo":"s","target_keyword":"k","search_intent":"Informational|Commercial|Transactional","priority":"high|medium|low"}]
 
-RULES: Minimize orphaned content. Each silo has exactly ONE pillar. Use exact ids from input. Focus hierarchical links: clusters→pillar. Return ONLY JSON.`;
+Rules: Minimize orphans. 1 pillar per silo. Use exact ids from input. Hierarchical links. ONLY JSON.`;
 
   const content = await callAI([
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: `Analyze these ${trimmedPosts.length} posts from ${domain} and generate a Silo Rehab Plan:\n${postsJSON}` },
+    { role: 'user', content: `Posts (${cappedPosts.length}):\n${postsJSON}` },
   ], req);
 
   return parseJSON<WPAuditResult>(content, emptyResult);
