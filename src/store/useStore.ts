@@ -306,7 +306,30 @@ export const useStore = create<AppState>()(
 
       setUser: (user) => set({ user }),
       setToken: (token) => set({ token }),
-      logout: () => set({ ...initialState }),
+      logout: () => set({
+        user: null,
+        token: null,
+        // Preserve savedProjectId so project data can be reloaded from D1 after re-login
+        // Also preserve project data references so the reload effect can pick them up
+        savedProjectId: useStore.getState().savedProjectId,
+        // Reset working data (will be reloaded from D1)
+        project: null,
+        silos: [],
+        pages: [],
+        internalLinks: [],
+        keywordClusters: [],
+        contentGaps: [],
+        contentBrief: null,
+        generatedArticles: [],
+        bulkGeneratingProgress: null,
+        gscSiloMetrics: [],
+        gscSyncResult: null,
+        gscSyncLoading: false,
+        isDirty: false,
+        lastSavedAt: null,
+        isSaving: false,
+        currentStep: 0, // Go to dashboard after re-login
+      }),
 
       resetStore: () => set({
         currentStep: 1, project: null, silos: [], pages: [],
