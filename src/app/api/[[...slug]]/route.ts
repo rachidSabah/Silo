@@ -177,54 +177,80 @@ async function handleAuditWordPress(req: NextRequest) {
   let page = 1;
   const perPage = 100;
   let hasMore = true;
+  const maxPages = 5; // Cap at 5 pages to stay under time budget
 
-  while (hasMore) {
+  while (hasMore && page <= maxPages) {
     const apiUrl = `${parsed.origin}/wp-json/wp/v2/posts?per_page=${perPage}&page=${page}&_fields=id,title,link,content`;
     let wpRes: Response;
     try {
+      // Use AbortController for edge-runtime compatibility (AbortSignal.timeout may not exist)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
       wpRes = await fetch(apiUrl, {
         headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
-      } as RequestInit);
-    } catch {
-      return NextResponse.json({ error: `Failed to connect to ${domain}. Make sure the WordPress REST API is publicly accessible.` }, { status: 502 });
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (fetchErr: unknown) {
+      const errMsg = fetchErr instanceof Error && fetchErr.name === 'AbortError'
+        ? `Connection to ${domain} timed out after 15 seconds. The site may be slow or blocking requests.`
+        : `Failed to connect to ${domain}. Make sure the WordPress REST API is publicly accessible.`;
+      console.error(`[WP Auditor] Fetch error for ${apiUrl}:`, fetchErr instanceof Error ? fetchErr.message : fetchErr);
+      return NextResponse.json({ error: errMsg }, { status: 502 });
     }
 
     if (!wpRes.ok) {
       const status = wpRes.status;
+      console.error(`[WP Auditor] API returned ${status} for ${apiUrl}`);
       if (status === 401 || status === 403) return NextResponse.json({ error: `WordPress API returned ${status}. The REST API may be protected or disabled.` }, { status: 502 });
       if (status === 404) return NextResponse.json({ error: 'WordPress REST API not found. This may not be a WordPress site or the API is disabled.' }, { status: 502 });
       return NextResponse.json({ error: `WordPress API error (${status}). Verify the URL is correct.` }, { status: 502 });
     }
 
-    const pageData = await wpRes.json() as Array<{ id: number; title: { rendered: string }; link: string; content: { rendered: string } }>;
+    let pageData: unknown;
+    try {
+      pageData = await wpRes.json();
+    } catch {
+      console.error(`[WP Auditor] Failed to parse JSON from ${apiUrl}`);
+      return NextResponse.json({ error: `WordPress API returned invalid data for ${domain}.` }, { status: 502 });
+    }
+
     if (!Array.isArray(pageData) || pageData.length === 0) { hasMore = false; break; }
-    allPosts.push(...pageData);
+    allPosts.push(...pageData as Array<{ id: number; title: { rendered: string }; link: string; content: { rendered: string } }>);
 
     // Check if there are more pages via the X-WP-TotalPages header
     const totalPages = parseInt(wpRes.headers.get('X-WP-TotalPages') || '1', 10);
     if (page >= totalPages || pageData.length < perPage) { hasMore = false; }
     else { page++; }
 
-    // Safety limit: max 500 posts to avoid token overflow
-    if (allPosts.length >= 500) { hasMore = false; }
+    // Safety limit: max 200 posts to keep AI prompt within token limits
+    if (allPosts.length >= 200) { hasMore = false; }
   }
 
   if (allPosts.length === 0) {
-    return NextResponse.json({ error: 'No posts found on this WordPress site.' }, { status: 404 });
+    return NextResponse.json({ error: 'No posts found on this WordPress site. Make sure the site has published posts and the REST API is enabled.' }, { status: 404 });
   }
 
+  console.log(`[WP Auditor] Fetched ${allPosts.length} posts from ${domain}, sending to AI...`);
+
   // ─── Step 2: Strip HTML from content to create plain-text summaries ───
+  // Limit content summary to 200 chars per post to keep prompt manageable
   const cleanPosts = allPosts.map(p => ({
     id: p.id,
     title: p.title?.rendered || 'Untitled',
     link: p.link,
-    content_summary: stripHTML(p.content?.rendered || '').slice(0, 500),
+    content_summary: stripHTML(p.content?.rendered || '').slice(0, 200),
   }));
 
-  // ─── Step 3: Pass to AI for Silo Rehab Plan ───
-  const result = await auditWordPress(cleanPosts, domain, req);
-  return json({ domain, posts_fetched: allPosts.length, audit: result });
+  // ─── Step 3: Pass to AI for Silo Rehab Plan (with retry) ───
+  try {
+    const result = await retryWithBackoff(() => auditWordPress(cleanPosts, domain, req), 2, 1500);
+    return json({ domain, posts_fetched: allPosts.length, audit: result });
+  } catch (aiErr: unknown) {
+    const msg = aiErr instanceof Error ? aiErr.message : 'AI analysis failed';
+    console.error(`[WP Auditor] AI error for ${domain}:`, msg);
+    return NextResponse.json({ error: `AI analysis failed: ${msg}` }, { status: 500 });
+  }
 }
 
 function stripHTML(html: string): string {

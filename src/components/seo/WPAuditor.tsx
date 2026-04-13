@@ -99,7 +99,8 @@ export default function WPAuditor() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Failed to audit WordPress site');
+        const msg = err.error || `Server error (${res.status})`;
+        throw new Error(msg);
       }
 
       const result = await res.json();

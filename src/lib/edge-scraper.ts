@@ -34,6 +34,9 @@ export async function scrapeUrl(targetUrl: string): Promise<ScrapedPageData> {
   };
 
   try {
+    // Use AbortController for edge-runtime compatibility (AbortSignal.timeout may not exist in Cloudflare Workers)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     const response = await fetch(targetUrl, {
       headers: {
         'User-Agent': 'SiloForge-Bot/1.0 (+https://siloforge.com)',
@@ -41,8 +44,9 @@ export async function scrapeUrl(targetUrl: string): Promise<ScrapedPageData> {
         'Accept-Language': 'en-US,en;q=0.9',
       },
       redirect: 'follow',
-      signal: AbortSignal.timeout(10000), // 10s timeout per URL
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} for ${targetUrl}`);

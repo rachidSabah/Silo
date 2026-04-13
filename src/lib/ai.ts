@@ -1746,59 +1746,35 @@ export async function auditWordPress(
 
   if (!posts || posts.length === 0) return emptyResult;
 
-  // Truncate content summaries to keep prompt within token limits
-  const trimmedPosts = posts.map(p => ({
+  // Cap at 150 posts max to keep prompt within AI token limits
+  const cappedPosts = posts.slice(0, 150);
+
+  // Use compact JSON (no indentation) to reduce token count
+  // Drop content_summary entirely if we have many posts — titles + URLs are enough for silo analysis
+  const trimmedPosts = cappedPosts.map(p => ({
     id: p.id,
     title: p.title,
-    link: p.link,
-    content_summary: p.content_summary.slice(0, 300),
+    url: p.link,
+    // Only include content_summary if we have fewer than 80 posts
+    ...(cappedPosts.length < 80 ? { content_summary: p.content_summary.slice(0, 150) } : {}),
   }));
 
-  const postsJSON = JSON.stringify(trimmedPosts, null, 2);
+  const postsJSON = JSON.stringify(trimmedPosts);
 
-  const systemPrompt = `You are an Enterprise Technical SEO Auditor. You are receiving a JSON dump of a live WordPress website's current posts from "${domain}". This site currently lacks a proper semantic silo structure.
+  const systemPrompt = `You are an Enterprise Technical SEO Auditor analyzing a WordPress site "${domain}" that lacks proper silo structure.
 
-Your objective is to analyze the titles and content summaries, and generate a "Silo Rehab Plan" in strict JSON format.
+Generate a "Silo Rehab Plan" as a JSON object with exactly these 4 keys:
 
-You MUST output a JSON object with exactly these 4 top-level keys:
+1. "proposed_silos": Array of silos. Each: {"name":"2-4 words","pillar":{title,url,id},"clusters":[{title,url,id}],"unassigned":[{title,url,id}]}
+2. "orphaned_content": Posts not fitting any silo. Each: {title,url,id,reason}
+3. "internal_link_plan": Link actions. Each: {"from_page":{title,url,id},"to_page":{title,url,id},"anchor_text":"text","reason":"why"}
+4. "content_gaps": Missing pages. Each: {"type":"pillar|cluster|blog","suggested_title":"title","suggested_silo":"name","target_keyword":"kw","search_intent":"Informational|Commercial|Transactional","priority":"high|medium|low"}
 
-1. "proposed_silos": Group the existing articles into logical Pillars and Clusters based on semantic relevance. Each silo object must have:
-   - "name": The silo category name (2-4 words)
-   - "pillar": The existing post that should serve as the pillar {title, url, id}
-   - "clusters": Array of existing posts that belong under this pillar [{title, url, id}]
-   - "unassigned": Posts in this silo that could fit in multiple clusters [{title, url, id}]
-
-2. "orphaned_content": Identify posts that do not fit into any clear cluster. Each must have:
-   - "title": Post title
-   - "url": Post URL
-   - "id": Post ID
-   - "reason": Why it doesn't fit any silo
-
-3. "internal_link_plan": Provide exact instructions on which existing pages need to link to each other to form the new clusters. Each entry must have:
-   - "from_page": {title, url, id} - The page that should contain the link
-   - "to_page": {title, url, id} - The page being linked to
-   - "anchor_text": The exact anchor text to use
-   - "reason": Why this link is needed for the silo structure
-
-4. "content_gaps": Identify what new Pillar or Cluster pages need to be written to complete the silos. Each must have:
-   - "type": "pillar" | "cluster" | "blog"
-   - "suggested_title": Proposed page title
-   - "suggested_silo": Which silo it belongs to
-   - "target_keyword": Primary keyword to target
-   - "search_intent": "Informational" | "Commercial" | "Transactional"
-   - "priority": "high" | "medium" | "low"
-
-RULES:
-- Group as many posts as possible into silos. Minimize orphaned content.
-- Each silo MUST have exactly ONE pillar (the most comprehensive/broad existing post).
-- Use the exact title, url, and id from the input data — do NOT invent new IDs.
-- For internal links, focus on creating hierarchical links: clusters → pillar, supporting posts → clusters.
-- Content gaps should identify the most impactful missing pages first.
-- Return ONLY the JSON object. No markdown. No explanations.`;
+RULES: Minimize orphaned content. Each silo has exactly ONE pillar. Use exact ids from input. Focus hierarchical links: clusters→pillar. Return ONLY JSON.`;
 
   const content = await callAI([
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: `Analyze these ${trimmedPosts.length} WordPress posts from ${domain} and generate a Silo Rehab Plan:\n\n${postsJSON}` },
+    { role: 'user', content: `Analyze these ${trimmedPosts.length} posts from ${domain} and generate a Silo Rehab Plan:\n${postsJSON}` },
   ], req);
 
   return parseJSON<WPAuditResult>(content, emptyResult);
