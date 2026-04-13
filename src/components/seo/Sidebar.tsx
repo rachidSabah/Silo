@@ -32,6 +32,7 @@ const toolSteps = [
   { num: 15, label: 'Content Humanizer', icon: Sparkles, color: 'pink' },
   { num: 16, label: 'SERP Tracker', icon: Target, color: 'cyan' },
   { num: 17, label: 'Content Gaps', icon: GitCompare, color: 'orange' },
+  { num: 18, label: 'WP Auditor', icon: Globe, color: 'emerald' },
 ];
 
 export default function Sidebar() {
@@ -132,6 +133,7 @@ export default function Sidebar() {
     if (step === 15) return !!project; // Content Humanizer
     if (step === 16) return !!project; // SERP Tracker
     if (step === 17) return !!project && pages.length > 0; // Content Gaps
+    if (step === 18) return true; // WP Auditor (always accessible)
     if (step === 99) return true;
     return false;
   };

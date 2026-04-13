@@ -13,7 +13,7 @@ import {
   getActiveAISetting, getAISettingsByUser, upsertAISetting, deleteAISetting, setActiveAISetting,
   getGSCMetricsBySilo, updatePageGSCMetrics,
 } from '@/lib/db';
-import { callAI, expandKeywords, generateSilos, generatePages, suggestInternalLinks, groupKeywords, mapSearchIntent, analyzeContentGap, generateContentBrief, generateSiloAwareArticle, humanizeContent, analyzeSERPFeatures } from '@/lib/ai';
+import { callAI, expandKeywords, generateSilos, generatePages, suggestInternalLinks, groupKeywords, mapSearchIntent, analyzeContentGap, generateContentBrief, generateSiloAwareArticle, humanizeContent, analyzeSERPFeatures, auditWordPress } from '@/lib/ai';
 import { scrapeCompetitorSite, buildScrapedPayloadForAI } from '@/lib/edge-scraper';
 import { processInBatches, BATCH_SIZES, retryWithBackoff } from '@/lib/concurrency';
 
@@ -105,6 +105,8 @@ async function handleRequest(req: NextRequest) {
       case path === 'gsc-auth/callback' && m === 'GET': { const code = url.searchParams.get('code'); const err = url.searchParams.get('error'); const o = new URL(req.url).origin; if (err || !code) return NextResponse.redirect(`${o}/?gsc_error=${err || 'no_code'}`); const cid = getGSCE('GSC_CLIENT_ID'); const cs = getGSCE('GSC_CLIENT_SECRET'); if (!cid || !cs) return NextResponse.redirect(`${o}/?gsc_error=config_missing`); const tr = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code, client_id: cid, client_secret: cs, redirect_uri: `${o}/api/gsc-auth/callback`, grant_type: 'authorization_code' }) }); if (!tr.ok) return NextResponse.redirect(`${o}/?gsc_error=token_failed`); const td = await tr.json(); const f = new URL('/', o); f.hash = `gsc_access_token=${encodeURIComponent(td.access_token)}&gsc_refresh_token=${encodeURIComponent(td.refresh_token || '')}&gsc_expires_in=${td.expires_in || 3600}`; return NextResponse.redirect(f.toString()); }
       // CMS
       case path === 'cms' && m === 'POST': { const { type, url: cu, api_key, username, password: pw, content } = await body(req); if (type === 'wordpress') { const r = await fetch(`${cu}/wp-json/wp/v2/posts`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Basic ${btoa(`${username}:${pw}`)}` }, body: JSON.stringify({ title: content.title, content: content.body, status: 'draft' }) }); return r.ok ? json({ ok: true, result: await r.json() }) : NextResponse.json({ error: 'WP push failed' }, { status: 502 }); } const r = await fetch(cu, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(api_key ? { 'X-API-Key': api_key } : {}) }, body: JSON.stringify(content) }); return r.ok ? json({ ok: true, result: await r.json() }) : NextResponse.json({ error: 'Push failed' }, { status: 502 }); }
+      // WP Auditor
+      case path === 'audit-wordpress' && m === 'POST': return await handleAuditWordPress(req);
       default: return NextResponse.json({ error: 'Not found', path }, { status: 404 });
     }
   } catch (e: unknown) { const msg = e instanceof Error ? e.message : 'Internal error'; console.error(`[API /${path}]:`, msg); return NextResponse.json({ error: msg }, { status: 500 }); }
@@ -158,6 +160,86 @@ async function handleGscSync(req: NextRequest) {
     if (match) { await updatePageGSCMetrics(match.id as string, { clicks: metrics.clicks, impressions: metrics.impressions, position: metrics.impressions > 0 ? metrics.positionSum / metrics.impressions : 0, ctr: metrics.impressions > 0 ? (metrics.clicks / metrics.impressions) * 100 : 0 }); synced++; }
   });
   return json({ synced_pages: synced, total_pages: pages.length, gsc_rows_fetched: rows.length, date_range: { start: sDate, end: eDate } });
+}
+
+async function handleAuditWordPress(req: NextRequest) {
+  const user = await getUserFromRequest(req); if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  const { target_url } = await body(req);
+  if (!target_url) return NextResponse.json({ error: 'target_url required' }, { status: 400 });
+
+  // Validate and normalize URL
+  let parsed: URL;
+  try { parsed = new URL(target_url); } catch { return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 }); }
+  const domain = parsed.hostname;
+
+  // ─── Step 1: Fetch posts from WP REST API (with pagination) ───
+  const allPosts: Array<{ id: number; title: { rendered: string }; link: string; content: { rendered: string } }> = [];
+  let page = 1;
+  const perPage = 100;
+  let hasMore = true;
+
+  while (hasMore) {
+    const apiUrl = `${parsed.origin}/wp-json/wp/v2/posts?per_page=${perPage}&page=${page}&_fields=id,title,link,content`;
+    let wpRes: Response;
+    try {
+      wpRes = await fetch(apiUrl, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
+      } as RequestInit);
+    } catch {
+      return NextResponse.json({ error: `Failed to connect to ${domain}. Make sure the WordPress REST API is publicly accessible.` }, { status: 502 });
+    }
+
+    if (!wpRes.ok) {
+      const status = wpRes.status;
+      if (status === 401 || status === 403) return NextResponse.json({ error: `WordPress API returned ${status}. The REST API may be protected or disabled.` }, { status: 502 });
+      if (status === 404) return NextResponse.json({ error: 'WordPress REST API not found. This may not be a WordPress site or the API is disabled.' }, { status: 502 });
+      return NextResponse.json({ error: `WordPress API error (${status}). Verify the URL is correct.` }, { status: 502 });
+    }
+
+    const pageData = await wpRes.json() as Array<{ id: number; title: { rendered: string }; link: string; content: { rendered: string } }>;
+    if (!Array.isArray(pageData) || pageData.length === 0) { hasMore = false; break; }
+    allPosts.push(...pageData);
+
+    // Check if there are more pages via the X-WP-TotalPages header
+    const totalPages = parseInt(wpRes.headers.get('X-WP-TotalPages') || '1', 10);
+    if (page >= totalPages || pageData.length < perPage) { hasMore = false; }
+    else { page++; }
+
+    // Safety limit: max 500 posts to avoid token overflow
+    if (allPosts.length >= 500) { hasMore = false; }
+  }
+
+  if (allPosts.length === 0) {
+    return NextResponse.json({ error: 'No posts found on this WordPress site.' }, { status: 404 });
+  }
+
+  // ─── Step 2: Strip HTML from content to create plain-text summaries ───
+  const cleanPosts = allPosts.map(p => ({
+    id: p.id,
+    title: p.title?.rendered || 'Untitled',
+    link: p.link,
+    content_summary: stripHTML(p.content?.rendered || '').slice(0, 500),
+  }));
+
+  // ─── Step 3: Pass to AI for Silo Rehab Plan ───
+  const result = await auditWordPress(cleanPosts, domain, req);
+  return json({ domain, posts_fetched: allPosts.length, audit: result });
+}
+
+function stripHTML(html: string): string {
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function getGSCE(name: string): string | null {
