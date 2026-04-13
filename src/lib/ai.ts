@@ -4,6 +4,7 @@
 import { getActiveAISetting } from '@/lib/db';
 import { getUserFromRequest } from '@/lib/auth';
 import { NextRequest } from 'next/server';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // Re-export for convenience
 export { AI_PROVIDERS } from '@/lib/ai-providers';
@@ -41,24 +42,54 @@ const GEMINI_MODEL_MAP: Record<string, string> = {
   'gemini-pro-latest': 'gemini-2.5-pro',
 };
 
+// Gemini SDK instance cache — avoids re-creating on every call
+let geminiClientCache: { apiKey: string; client: GoogleGenerativeAI } | null = null;
+
+function getGeminiClient(apiKey: string): GoogleGenerativeAI {
+  if (geminiClientCache && geminiClientCache.apiKey === apiKey) {
+    return geminiClientCache.client;
+  }
+  const client = new GoogleGenerativeAI(apiKey);
+  geminiClientCache = { apiKey, client };
+  return client;
+}
+
 async function callGemini(apiKey: string, model: string, messages: ChatMessage[]): Promise<string> {
   const safeModel = GEMINI_MODEL_MAP[model] || model;
+  const genAI = getGeminiClient(apiKey);
+  const genModel = genAI.getGenerativeModel({ model: safeModel });
+
+  // Convert our ChatMessage format to Gemini's format
+  // System messages become the first user message (Gemini has no system role in v1beta)
   const contents = messages.map((m) => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
+    role: m.role === 'assistant' ? 'model' as const : 'user' as const,
     parts: [{ text: m.content }],
   }));
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${safeModel}:generateContent?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents, generationConfig: { temperature: 0.7 } }),
-  });
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw new Error(`Gemini API error (${res.status}): ${errBody.slice(0, 200)}`);
+  try {
+    const result = await genModel.generateContent({
+      contents,
+      generationConfig: { temperature: 0.7 },
+    });
+    const text = result.response.text();
+    if (!text) {
+      // Check for block reasons
+      const feedback = result.response.promptFeedback;
+      if (feedback?.blockReason) {
+        throw new Error(`Gemini blocked the request: ${feedback.blockReason}. Try rephrasing your prompt.`);
+      }
+      throw new Error('Gemini returned an empty response. Try again or use a different model.');
+    }
+    return text;
+  } catch (err: unknown) {
+    // Re-throw our own errors as-is
+    if (err instanceof Error && (err.message.startsWith('Gemini blocked') || err.message.startsWith('Gemini returned'))) {
+      throw err;
+    }
+    // Wrap SDK errors with useful context
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Gemini API error: ${msg.slice(0, 300)}`);
   }
-  const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
 async function callClaude(apiKey: string, model: string, messages: ChatMessage[]): Promise<string> {
