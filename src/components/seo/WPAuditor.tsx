@@ -105,6 +105,13 @@ export default function WPAuditor() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        // If we can't parse JSON, it's likely a Cloudflare-level error (502, 524)
+        if (!err.error && res.status === 502) {
+          throw new Error('Cloudflare returned a 502 error. This usually means the request timed out on the server. Try: 1) Use a faster AI model, 2) Audit a site with fewer posts, or 3) Try again in a moment.');
+        }
+        if (!err.error && res.status === 524) {
+          throw new Error('The server timed out (524). The AI analysis took too long. Try: 1) Use a faster AI model (e.g., gemma-3-12b-it:free or gpt-4o-mini), 2) Audit a site with fewer posts.');
+        }
         const msg = err.error || `Server error (${res.status})`;
         throw new Error(msg);
       }

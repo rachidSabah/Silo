@@ -205,7 +205,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 const AI_CALL_TIMEOUT_MS = 55_000;
 
 // Main AI call function - resolves provider from user settings
-export async function callAI(messages: ChatMessage[], req?: NextRequest): Promise<string> {
+// customTimeoutMs: optional per-call timeout override (e.g., for audit which needs a shorter budget)
+export async function callAI(messages: ChatMessage[], req?: NextRequest, customTimeoutMs?: number): Promise<string> {
   // Try to get user's active AI setting from the request's auth token
   if (req) {
     const user = await getUserFromRequest(req);
@@ -242,11 +243,12 @@ export async function callAI(messages: ChatMessage[], req?: NextRequest): Promis
         }
 
         // Wrap ALL AI calls with timeout to prevent Cloudflare 524 errors
+        const timeoutMs = customTimeoutMs || AI_CALL_TIMEOUT_MS;
         try {
-          return await withTimeout(aiPromise, AI_CALL_TIMEOUT_MS);
+          return await withTimeout(aiPromise, timeoutMs);
         } catch (err) {
           if (err instanceof Error && err.message.includes('timed out')) {
-            console.error(`[callAI] ${provider} call timed out after ${AI_CALL_TIMEOUT_MS}ms`);
+            console.error(`[callAI] ${provider} call timed out after ${timeoutMs}ms`);
             throw new Error(`AI request timed out. The ${provider} API took too long to respond. Try using a faster model (e.g., gemini-2.5-flash-lite or gpt-4o-mini) or reduce the amount of data being processed.`);
           }
           throw err;
@@ -1798,6 +1800,7 @@ export async function auditWordPress(
   posts: Array<{ id: number; title: string; link: string; content_summary?: string }>,
   domain: string,
   req?: NextRequest,
+  aiTimeoutMs?: number,
 ): Promise<WPAuditResult> {
   const emptyResult: WPAuditResult = {
     proposed_silos: [],
@@ -1808,9 +1811,9 @@ export async function auditWordPress(
 
   if (!posts || posts.length === 0) return emptyResult;
 
-  // Cap at 80 posts max — titles + URLs are enough for silo clustering
-  // This keeps the prompt small enough for free/slow models to process within 55s
-  const cappedPosts = posts.slice(0, 80);
+  // Cap at 50 posts max — titles + URLs are enough for silo clustering
+  // This keeps the prompt small enough for free/slow models to process within the timeout
+  const cappedPosts = posts.slice(0, 50);
 
   // Ultra-compact format: use short keys to minimize tokens
   // t=title, u=url — AI will map these to the full output format
@@ -1832,7 +1835,7 @@ Rules: Minimize orphans. 1 pillar per silo. Use exact ids from input. Hierarchic
   const content = await callAI([
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `Posts (${cappedPosts.length}):\n${postsJSON}` },
-  ], req);
+  ], req, aiTimeoutMs);
 
   return parseJSON<WPAuditResult>(content, emptyResult);
 }

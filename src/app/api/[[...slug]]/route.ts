@@ -172,20 +172,25 @@ async function handleAuditWordPress(req: NextRequest) {
   try { parsed = new URL(target_url); } catch { return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 }); }
   const domain = parsed.hostname;
 
-  // Overall request deadline — must complete within 85s to stay under Cloudflare's 100s limit
+  // Overall request deadline — must complete within 80s to stay under Cloudflare's 100s limit
+  // We use 80s to leave 20s safety margin for Cloudflare overhead, DB queries, and response sending
   const requestStart = Date.now();
-  const DEADLINE_MS = 83_000;
+  const DEADLINE_MS = 80_000;
+
+  // ─── Global timeout wrapper: ensures we always return a proper JSON response ───
+  // This prevents Cloudflare from returning an opaque 502 when the function exceeds 100s
+  const auditPromise = (async (): Promise<NextResponse> => {
 
   // ─── Step 1: Fetch posts from WP REST API (with pagination) ───
   const allPosts: Array<{ id: number; title: { rendered: string }; link: string }> = [];
   let page = 1;
-  const perPage = 100;
+  const perPage = 50; // Reduced from 100 to speed up fetch
   let hasMore = true;
-  const maxPages = 3; // Max 3 pages to leave time for AI analysis
+  const maxPages = 3;
 
   while (hasMore && page <= maxPages) {
     // Check deadline before each page fetch
-    if (Date.now() - requestStart > DEADLINE_MS - 30_000) {
+    if (Date.now() - requestStart > DEADLINE_MS - 35_000) {
       console.log(`[WP Auditor] Approaching deadline after ${allPosts.length} posts, stopping pagination`);
       break;
     }
@@ -194,15 +199,15 @@ async function handleAuditWordPress(req: NextRequest) {
     let wpRes: Response;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
       wpRes = await fetch(apiUrl, {
-        headers: { 'Accept': 'application/json' },
+        headers: { 'Accept': 'application/json', 'User-Agent': 'SiloForge/1.0 (WP Auditor)' },
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
     } catch (fetchErr: unknown) {
       const errMsg = fetchErr instanceof Error && fetchErr.name === 'AbortError'
-        ? `Connection to ${domain} timed out. The site may be slow or blocking requests.`
+        ? `Connection to ${domain} timed out after 6s. The site may be slow or blocking requests.`
         : `Failed to connect to ${domain}. Make sure the WordPress REST API is publicly accessible.`;
       console.error(`[WP Auditor] Fetch error for ${apiUrl}:`, fetchErr instanceof Error ? fetchErr.message : fetchErr);
       return NextResponse.json({ error: errMsg }, { status: 502 });
@@ -213,6 +218,7 @@ async function handleAuditWordPress(req: NextRequest) {
       console.error(`[WP Auditor] API returned ${status} for ${apiUrl}`);
       if (status === 401 || status === 403) return NextResponse.json({ error: `WordPress API returned ${status}. The REST API may be protected or disabled.` }, { status: 502 });
       if (status === 404) return NextResponse.json({ error: 'WordPress REST API not found. This may not be a WordPress site or the API is disabled.' }, { status: 502 });
+      if (status === 429) return NextResponse.json({ error: `WordPress API rate-limited (${status}). The site is blocking automated requests. Try again in a few minutes.` }, { status: 502 });
       return NextResponse.json({ error: `WordPress API error (${status}). Verify the URL is correct.` }, { status: 502 });
     }
 
@@ -232,8 +238,8 @@ async function handleAuditWordPress(req: NextRequest) {
     if (page >= totalPages || pageData.length < perPage) { hasMore = false; }
     else { page++; }
 
-    // Safety limit: max 100 posts to keep AI prompt small and fast
-    if (allPosts.length >= 100) { hasMore = false; }
+    // Safety limit: max 60 posts to keep AI prompt small and fast
+    if (allPosts.length >= 60) { hasMore = false; }
   }
 
   if (allPosts.length === 0) {
@@ -244,33 +250,49 @@ async function handleAuditWordPress(req: NextRequest) {
   console.log(`[WP Auditor] Fetched ${allPosts.length} posts from ${domain} in ${elapsed}ms, sending to AI...`);
 
   // ─── Step 2: Strip HTML — only keep title + URL for silo analysis ───
-  // Titles and URLs alone are sufficient for clustering — skip content to save tokens and time
   const cleanPosts = allPosts.map(p => ({
     id: p.id,
     title: p.title?.rendered || 'Untitled',
     link: p.link,
   }));
 
-  // ─── Step 3: Pass to AI for Silo Rehab Plan (NO retry — single attempt to stay under deadline) ───
+  // ─── Step 3: Pass to AI for Silo Rehab Plan ───
   const remainingMs = DEADLINE_MS - (Date.now() - requestStart);
-  if (remainingMs < 20_000) {
-    return NextResponse.json({ error: `Not enough time remaining for AI analysis. The WordPress site was too slow to fetch (${Math.round(elapsed / 1000)}s). Try a faster site or one with fewer posts.` }, { status: 504 });
+  const aiTimeoutMs = Math.min(remainingMs - 5_000, 45_000); // Dynamic: use remaining time minus 5s buffer, capped at 45s
+  if (aiTimeoutMs < 15_000) {
+    return NextResponse.json({ error: `Not enough time remaining for AI analysis (${Math.round(remainingMs / 1000)}s left). The WordPress site was too slow to fetch (${Math.round(elapsed / 1000)}s). Try a faster site or one with fewer posts.` }, { status: 504 });
   }
 
   try {
-    const result = await auditWordPress(cleanPosts, domain, req);
+    const result = await auditWordPress(cleanPosts, domain, req, aiTimeoutMs);
     const totalTime = Date.now() - requestStart;
     console.log(`[WP Auditor] Complete for ${domain}: ${allPosts.length} posts, ${totalTime}ms total`);
     return json({ domain, posts_fetched: allPosts.length, audit: result });
   } catch (aiErr: unknown) {
     const msg = aiErr instanceof Error ? aiErr.message : 'AI analysis failed';
     console.error(`[WP Auditor] AI error for ${domain}:`, msg);
-    // Return a more helpful error with suggestions
     if (msg.includes('timed out')) {
       return NextResponse.json({ error: `AI analysis timed out. Free models on OpenRouter can be slow. Try: 1) A faster model like gemma-3-12b-it:free, 2) Google Gemini (free on AI Studio), or 3) Audit a site with fewer posts.` }, { status: 504 });
     }
+    if (msg.includes('No active AI provider') || msg.includes('Not authenticated')) {
+      return NextResponse.json({ error: `${msg} Please check your AI Settings in the Admin panel.` }, { status: 500 });
+    }
     return NextResponse.json({ error: `AI analysis failed: ${msg}` }, { status: 500 });
   }
+
+  }); // end auditPromise
+
+  // ─── Global timeout: race the audit against the deadline ───
+  // If the audit takes too long, return a helpful error instead of letting Cloudflare return a raw 502
+  const globalTimeout = new Promise<NextResponse>((resolve) => {
+    setTimeout(() => {
+      resolve(NextResponse.json({
+        error: `Audit timed out after ${Math.round(DEADLINE_MS / 1000)}s. This usually happens when: 1) The WordPress site is slow to respond, 2) The AI model is slow (free models can queue). Try: a faster AI model, a site with fewer posts, or audit again in a moment.`,
+      }, { status: 504 }));
+    }, DEADLINE_MS);
+  });
+
+  return Promise.race([auditPromise, globalTimeout]);
 }
 
 function stripHTML(html: string): string {
