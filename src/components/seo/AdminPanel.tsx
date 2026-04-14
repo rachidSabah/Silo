@@ -454,15 +454,18 @@ import { AI_PROVIDERS } from '@/lib/ai-providers';
 
 function AISettingsPanel() {
   const { token } = useStore();
-  const [settings, setSettings] = useState<Array<{ id: string; provider: string; api_key: string; model: string; is_active: number }>>([]);
+  const [settings, setSettings] = useState<Array<{ id: string; provider: string; api_key: string; model: string; base_url?: string; is_active: number }>>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [provider, setProvider] = useState('openrouter');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('google/gemma-3-27b-it:free');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [customModelName, setCustomModelName] = useState('');
   const [makeActive, setMakeActive] = useState(true);
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showKey, setShowKey] = useState(false);
+  const [testingProvider, setTestingProvider] = useState(false);
 
   const loadSettings = useCallback(async () => {
     if (!token) return;
@@ -490,8 +493,16 @@ function AISettingsPanel() {
   }, [provider]);
 
   const handleAddSetting = async () => {
-    if (!apiKey.trim()) {
+    if (!apiKey.trim() && provider !== 'custom') {
       setMsg({ type: 'error', text: 'API key is required' });
+      return;
+    }
+    if (provider === 'custom' && !baseUrl.trim()) {
+      setMsg({ type: 'error', text: 'Base URL is required for custom provider' });
+      return;
+    }
+    if (provider === 'custom' && !customModelName.trim()) {
+      setMsg({ type: 'error', text: 'Model Name is required for custom provider' });
       return;
     }
     if (!token) {
@@ -499,10 +510,11 @@ function AISettingsPanel() {
       return;
     }
     try {
+      const finalModel = provider === 'custom' ? customModelName : model;
       const res = await authFetch('/api/settings', token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, api_key: apiKey, model, is_active: makeActive }),
+        body: JSON.stringify({ provider, api_key: apiKey, model: finalModel, base_url: provider === 'custom' ? baseUrl : '', is_active: makeActive }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -511,6 +523,8 @@ function AISettingsPanel() {
       }
       setMsg({ type: 'success', text: 'AI provider saved successfully' });
       setApiKey('');
+      setBaseUrl('');
+      setCustomModelName('');
       setShowAdd(false);
       loadSettings();
       setTimeout(() => setMsg(null), 3000);
@@ -575,7 +589,7 @@ function AISettingsPanel() {
               <label className="text-xs text-slate-400 mb-1 block">Provider</label>
               <select
                 value={provider}
-                onChange={(e) => setProvider(e.target.value)}
+                onChange={(e) => { setProvider(e.target.value); setBaseUrl(''); setCustomModelName(''); }}
                 className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
               >
                 {Object.entries(AI_PROVIDERS).map(([key, p]) => (
@@ -588,21 +602,56 @@ function AISettingsPanel() {
                 <p className="text-[11px] text-slate-500 mt-1">{AI_PROVIDERS[provider].description}</p>
               )}
             </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Model</label>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
-              >
-                {AI_PROVIDERS[provider]?.models.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </div>
+            {provider === 'custom' ? (
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Model Name</label>
+                <input
+                  type="text"
+                  value={customModelName}
+                  onChange={(e) => setCustomModelName(e.target.value)}
+                  placeholder="e.g., llama3, gpt-4, mistral..."
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">Enter the exact model identifier your API expects</p>
+              </div>
+            ) : (
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Model</label>
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+                >
+                  {AI_PROVIDERS[provider]?.models.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
+
+          {/* Custom Provider: Base URL field */}
+          {provider === 'custom' && (
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Base URL</label>
+              <input
+                type="url"
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                placeholder="e.g., http://localhost:11434, https://api.your-provider.com"
+                className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                The API base URL. We auto-append <code className="text-slate-400">/v1/chat/completions</code> if not included.
+                Examples: <code className="text-slate-400">http://localhost:11434</code> (Ollama),{' '}
+                <code className="text-slate-400">http://localhost:1234</code> (LM Studio),{' '}
+                <code className="text-slate-400">https://api.together.xyz</code> (Together AI)
+              </p>
+            </div>
+          )}
+
           <div>
-            <label className="text-xs text-slate-400 mb-1 block">API Key</label>
+            <label className="text-xs text-slate-400 mb-1 block">API Key {provider === 'custom' && '(Optional)'}</label>
             <input
               type={showKey ? 'text' : 'password'}
               value={apiKey}
@@ -612,13 +661,19 @@ function AISettingsPanel() {
                 provider === 'openai' ? 'sk-...' :
                 provider === 'gemini' ? 'AIza...' :
                 provider === 'claude' ? 'sk-ant-...' :
-                provider === 'deepseek' ? 'sk-...' : 'API Key'
+                provider === 'deepseek' ? 'sk-...' :
+                provider === 'custom' ? 'Optional — leave empty if no auth needed' : 'API Key'
               }
               className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
             />
             {provider === 'openrouter' && (
               <p className="text-[11px] text-emerald-400/70 mt-1">
                 Get a free API key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline hover:text-emerald-300">openrouter.ai/keys</a> — free models work with $0 balance.
+              </p>
+            )}
+            {provider === 'custom' && (
+              <p className="text-[11px] text-slate-500 mt-1">
+                Leave empty for local providers (Ollama, LM Studio) that don&apos;t require authentication
               </p>
             )}
             <button
@@ -673,11 +728,14 @@ function AISettingsPanel() {
                   {AI_PROVIDERS[s.provider]?.free && (
                     <span className="px-1.5 py-0.5 bg-emerald-500/15 text-emerald-400 rounded text-[10px] font-medium">Free Models</span>
                   )}
+                  {s.provider === 'custom' && s.base_url && (
+                    <span className="px-1.5 py-0.5 bg-purple-500/15 text-purple-400 rounded text-[10px] font-medium max-w-[200px] truncate" title={s.base_url}>{s.base_url}</span>
+                  )}
                   {s.is_active && (
                     <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 rounded text-[10px] font-medium">Active</span>
                   )}
                 </div>
-                <p className="text-slate-500 text-xs mt-0.5">{s.api_key}</p>
+                <p className="text-slate-500 text-xs mt-0.5">{s.api_key || 'No API key (local)'}</p>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
                 {!s.is_active && (
@@ -719,11 +777,16 @@ function AISettingsPanel() {
                 {p.free && (
                   <span className="px-1.5 py-0.5 bg-emerald-500/15 text-emerald-400 rounded text-[9px] font-semibold">FREE</span>
                 )}
+                {key === 'custom' && (
+                  <span className="px-1.5 py-0.5 bg-purple-500/15 text-purple-400 rounded text-[9px] font-semibold">SELF-HOSTED</span>
+                )}
               </div>
               {p.description && (
                 <p className="text-slate-400 text-[11px] mt-0.5">{p.description}</p>
               )}
-              <p className="text-slate-500 text-xs mt-0.5">{p.models.length} models</p>
+              <p className="text-slate-500 text-xs mt-0.5">
+                {key === 'custom' ? 'Bring your own API endpoint' : `${p.models.length} models`}
+              </p>
             </div>
           ))}
         </div>

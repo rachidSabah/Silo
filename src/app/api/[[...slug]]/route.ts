@@ -78,7 +78,7 @@ async function handleRequest(req: NextRequest) {
       case seg[0] === 'users' && seg.length === 2 && isUUID(seg[1]) && m === 'DELETE': await deleteUser(seg[1]); return json({ ok: true });
       // Settings
       case path === 'settings' && m === 'GET': { const u = await getUserFromRequest(req); return json(u ? await getAISettingsByUser(u.userId) : []); }
-      case path === 'settings' && m === 'POST': { const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const d = await body(req); await upsertAISetting({ id: d.id || crypto.randomUUID(), user_id: u.userId, provider: d.provider || '', api_key: d.api_key || '', model: d.model || '', is_active: d.is_active ?? 1 }); return json({ ok: true }); }
+      case path === 'settings' && m === 'POST': { const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const d = await body(req); await upsertAISetting({ id: d.id || crypto.randomUUID(), user_id: u.userId, provider: d.provider || '', api_key: d.api_key || '', model: d.model || '', base_url: d.base_url || '', is_active: d.is_active ?? 1 }); return json({ ok: true }); }
       case path === 'settings' && m === 'PUT': { const d = await body(req); const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); if (d.id) await setActiveAISetting(d.id, u.userId); return json({ ok: true }); }
       case path === 'settings' && m === 'DELETE': { const d = await body(req); await deleteAISetting(d.id || url.searchParams.get('id') || ''); return json({ ok: true }); }
       // AI

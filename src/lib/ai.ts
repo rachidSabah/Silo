@@ -161,6 +161,34 @@ async function callDeepSeek(apiKey: string, model: string, messages: ChatMessage
   return content || reasoning;
 }
 
+// Custom provider — calls any OpenAI-compatible API at a user-specified base URL
+// Supports: Ollama, LM Studio, vLLM, LocalAI, text-generation-inference, etc.
+async function callCustom(apiKey: string, model: string, messages: ChatMessage[], baseUrl: string): Promise<string> {
+  // Normalize base URL: remove trailing slash, ensure /v1/chat/completions endpoint
+  let url = baseUrl.replace(/\/+$/, '');
+  // If the URL doesn't already end with a chat completions path, append it
+  if (!url.endsWith('/chat/completions') && !url.endsWith('/v1/chat/completions')) {
+    url = url.endsWith('/v1') ? `${url}/chat/completions` : `${url}/v1/chat/completions`;
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model, messages, temperature: 0.7 }),
+  });
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Custom API error (${res.status}) at ${url}: ${errBody.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
 // Timeout wrapper — keeps AI calls under Cloudflare's 100s edge function limit
 // We use 55s to leave headroom for JSON parsing, DB queries, and response sending
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -185,6 +213,7 @@ export async function callAI(messages: ChatMessage[], req?: NextRequest): Promis
       const setting = await getActiveAISetting(user.userId);
       if (setting && setting.api_key) {
         const { provider, api_key, model } = setting;
+        const baseUrl = (setting as Record<string, unknown>).base_url as string || '';
         let aiPromise: Promise<string>;
 
         switch (provider) {
@@ -202,6 +231,11 @@ export async function callAI(messages: ChatMessage[], req?: NextRequest): Promis
             break;
           case 'deepseek':
             aiPromise = callDeepSeek(api_key, model || 'deepseek-chat', messages);
+            break;
+          case 'custom':
+            if (!baseUrl) throw new Error('Custom provider requires a Base URL. Please update your AI settings.');
+            if (!model) throw new Error('Custom provider requires a Model Name. Please update your AI settings.');
+            aiPromise = callCustom(api_key, model, messages, baseUrl);
             break;
           default:
             throw new Error(`Unknown AI provider: ${provider}. Please check your AI settings.`);

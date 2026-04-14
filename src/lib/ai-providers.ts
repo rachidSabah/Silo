@@ -101,4 +101,10 @@ export const AI_PROVIDERS: Record<string, AIProvider> = {
     ],
     defaultModel: 'deepseek-chat',
   },
+  custom: {
+    name: 'Custom Provider (OpenAI-Compatible)',
+    description: 'Connect any OpenAI-compatible API — local LLMs (Ollama, LM Studio), self-hosted models, or third-party providers.',
+    models: [], // User enters their own model name
+    defaultModel: '',
+  },
 };

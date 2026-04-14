@@ -129,6 +129,10 @@ async function runMigrations(db: D1Database) {
   try {
     await db.prepare('ALTER TABLE pages ADD COLUMN gsc_last_synced TEXT').run();
   } catch { /* already exists */ }
+  // AI settings: base_url column for custom provider support
+  try {
+    await db.prepare('ALTER TABLE ai_settings ADD COLUMN base_url TEXT NOT NULL DEFAULT \'\'').run();
+  } catch { /* already exists */ }
 }
 
 // ===== Projects =====
@@ -671,6 +675,7 @@ interface AISettingRecord {
   provider: string;
   api_key: string;
   model: string;
+  base_url: string;
   is_active: number;
   created_at: string;
   updated_at: string;
@@ -695,15 +700,15 @@ export async function getActiveAISetting(userId: string): Promise<AISettingRecor
   return memSettings.find((s) => s.user_id === userId && s.is_active === 1) || null;
 }
 
-export async function upsertAISetting(data: { id: string; user_id: string; provider: string; api_key: string; model: string; is_active?: number }) {
+export async function upsertAISetting(data: { id: string; user_id: string; provider: string; api_key: string; model: string; base_url?: string; is_active?: number }) {
   if (isCloudflare()) {
     const db = getD1();
     // If this is active, deactivate others first
     if (data.is_active) {
       await db.prepare('UPDATE ai_settings SET is_active = 0 WHERE user_id = ?').bind(data.user_id).run();
     }
-    await db.prepare('INSERT OR REPLACE INTO ai_settings (id, user_id, provider, api_key, model, is_active) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(data.id, data.user_id, data.provider, data.api_key, data.model, data.is_active ? 1 : 0).run();
+    await db.prepare('INSERT OR REPLACE INTO ai_settings (id, user_id, provider, api_key, model, base_url, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(data.id, data.user_id, data.provider, data.api_key, data.model, data.base_url || '', data.is_active ? 1 : 0).run();
     return;
   }
   const idx = memSettings.findIndex((s) => s.id === data.id);
@@ -716,6 +721,7 @@ export async function upsertAISetting(data: { id: string; user_id: string; provi
     provider: data.provider,
     api_key: data.api_key,
     model: data.model,
+    base_url: data.base_url || '',
     is_active: data.is_active ? 1 : 0,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
