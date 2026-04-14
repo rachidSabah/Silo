@@ -211,7 +211,7 @@ export async function callAI(messages: ChatMessage[], req?: NextRequest): Promis
     const user = await getUserFromRequest(req);
     if (user) {
       const setting = await getActiveAISetting(user.userId);
-      if (setting && setting.api_key) {
+      if (setting && (setting.api_key || setting.provider === 'custom')) {
         const { provider, api_key, model } = setting;
         const baseUrl = (setting as Record<string, unknown>).base_url as string || '';
         let aiPromise: Promise<string>;

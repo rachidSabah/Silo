@@ -91,11 +91,17 @@ export default function WPAuditor() {
     setCheckedLinks(new Set());
 
     try {
+      // Client-side 90s timeout — Cloudflare kills edge functions at 100s
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 90_000);
+
       const res = await authFetch('/api/audit-wordpress', token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target_url: normalizedUrl }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -108,7 +114,11 @@ export default function WPAuditor() {
       setActiveTab('restructuring');
       setExpandedSilo(0);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Audit failed');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('Request timed out (90s). The site may be too slow or have too many posts. Try a faster WordPress site or one with fewer posts.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Audit failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -202,6 +212,17 @@ export default function WPAuditor() {
           <div>
             <p className="text-red-300 text-sm font-medium">Audit Failed</p>
             <p className="text-red-300/70 text-xs mt-1">{error}</p>
+            {(error.includes('502') || error.includes('timed out') || error.includes('timeout')) && (
+              <div className="mt-2 space-y-1">
+                <p className="text-red-300/60 text-[11px] font-medium">Suggestions:</p>
+                <ul className="text-red-300/50 text-[11px] list-disc list-inside space-y-0.5">
+                  <li>Try a faster WordPress site or one with fewer posts</li>
+                  <li>Switch to a faster AI model (e.g., gemma-3-12b-it:free or Gemini Flash)</li>
+                  <li>Ensure your AI provider API key is valid and has credits</li>
+                  <li>Check that the WordPress REST API is publicly accessible</li>
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       )}
