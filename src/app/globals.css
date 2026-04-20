@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Leaflet map styles */
+@import "../../node_modules/leaflet/dist/leaflet.css";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

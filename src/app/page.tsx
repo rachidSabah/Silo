@@ -43,6 +43,28 @@ function safeParseKeywords(raw: string | null | undefined): string[] {
   }
 }
 
+// Error boundary component
+import { Component, ReactNode } from 'react';
+interface EBState { hasError: boolean; error?: string }
+class ErrorBoundary extends Component<{ children: ReactNode }, EBState> {
+  constructor(props: { children: ReactNode }) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError(e: Error) { return { hasError: true, error: e.message }; }
+  render() {
+    if (this.state.hasError) return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 p-8">
+        <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 max-w-md text-center">
+          <div className="text-4xl mb-4">⚠️</div>
+          <h2 className="text-xl font-bold text-white mb-2">Something went wrong</h2>
+          <p className="text-slate-400 text-sm mb-4">{this.state.error || 'An unexpected error occurred.'}</p>
+          <button onClick={() => { this.setState({ hasError: false }); window.location.reload(); }}
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm">Reload Page</button>
+        </div>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
 export default function Home() {
   const { currentStep, user, token, setUser, setToken, logout } = useStore();
 
@@ -333,6 +355,7 @@ function AuthenticatedApp() {
   };
 
   return (
+    <ErrorBoundary>
     <div className="flex h-dvh bg-slate-950 overflow-hidden">
       <Sidebar />
       <main className="flex-1 overflow-y-auto overscroll-contain">
@@ -341,5 +364,6 @@ function AuthenticatedApp() {
         </div>
       </main>
     </div>
+    </ErrorBoundary>
   );
 }
