@@ -36,6 +36,8 @@ export default function GeoGridTracker() {
   const [scanning, setScanning] = useState(false);
   const [showNewScan, setShowNewScan] = useState(false);
   const [showCompetitors, setShowCompetitors] = useState(false);
+  const [viewMode, setViewMode] = useState<'heatmap' | 'markers' | 'both'>('both');
+  const [scanProvider, setScanProvider] = useState<string>('');
 
   // New scan form
   const [keyword, setKeyword] = useState('');
@@ -92,8 +94,11 @@ export default function GeoGridTracker() {
       if (data.scan) {
         setSelectedScan(data.scan);
         setNodes(data.nodes || []);
+        setScanProvider(data.provider || 'mock');
         setScans(prev => [data.scan, ...prev]);
         setShowNewScan(false);
+      } else if (data.error) {
+        alert(data.error);
       }
     } catch (err) {
       console.error('Scan failed:', err);
@@ -120,6 +125,9 @@ export default function GeoGridTracker() {
             📍 GeoGrid Rank Tracker
           </h2>
           <p className="text-slate-400 text-sm mt-1">Visualize your local search ranking across a geographic grid</p>
+          {scanProvider && (
+            <p className="text-slate-500 text-[10px] mt-0.5">Data source: <span className={scanProvider === 'mock' ? 'text-amber-400' : 'text-emerald-400'}>{scanProvider === 'mock' ? 'Simulated (no SERP API key configured)' : scanProvider.toUpperCase()}</span></p>
+          )}
         </div>
         <button
           onClick={() => setShowNewScan(true)}
@@ -249,16 +257,34 @@ export default function GeoGridTracker() {
                 nodes={nodes}
                 showCompetitors={showCompetitors}
                 getRankColor={getRankColor}
+                viewMode={viewMode}
               />
             )}
           </div>
 
           {/* Legend */}
-          <div className="flex items-center justify-center gap-6 text-xs text-slate-400">
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> Ranks 1-3</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block" /> Ranks 4-10</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> Ranks 10+</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-gray-500 inline-block" /> Not Found</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4 text-xs text-slate-400">
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> 1-3</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block" /> 4-10</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> 11-20</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-gray-500 inline-block" /> N/A</span>
+            </div>
+            <div className="flex items-center gap-1 bg-slate-800/80 border border-slate-700 rounded-lg p-0.5">
+              {(['heatmap', 'markers', 'both'] as const).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                    viewMode === mode
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {mode === 'heatmap' ? 'Heat' : mode === 'markers' ? 'Markers' : 'Both'}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
