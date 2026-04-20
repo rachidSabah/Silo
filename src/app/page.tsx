@@ -25,6 +25,11 @@ import ContentHumanizer from '@/components/seo/ContentHumanizer';
 import SERPFeatureTracker from '@/components/seo/SERPFeatureTracker';
 import ContentGapAnalyzer from '@/components/seo/ContentGapAnalyzer';
 import WPAuditor from '@/components/seo/WPAuditor';
+import GeoGridTracker from '@/components/seo/GeoGridTracker';
+import GBPManager from '@/components/seo/GBPManager';
+import LocalScanAnalyzer from '@/components/seo/LocalScanAnalyzer';
+import CitationRadar from '@/components/seo/CitationRadar';
+import CompetitorCompare from '@/components/seo/CompetitorCompare';
 
 // Helper to safely parse keywords from D1 (stored as JSON string or comma-separated)
 function safeParseKeywords(raw: string | null | undefined): string[] {
@@ -310,6 +315,16 @@ function AuthenticatedApp() {
         return <ContentGapAnalyzer />;
       case 18:
         return <WPAuditor />;
+      case 19:
+        return <GeoGridTracker />;
+      case 20:
+        return <GBPManager />;
+      case 21:
+        return <LocalScanAnalyzer />;
+      case 22:
+        return <CitationRadar />;
+      case 23:
+        return <CompetitorCompare />;
       case 99:
         return <AdminPanel />;
       default:

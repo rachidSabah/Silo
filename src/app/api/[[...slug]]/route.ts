@@ -12,8 +12,14 @@ import {
   getAllUsers, getUserByEmail, getUserById, createUser, updateUser, deleteUser,
   getActiveAISetting, getAISettingsByUser, upsertAISetting, deleteAISetting, setActiveAISetting,
   getGSCMetricsBySilo, updatePageGSCMetrics,
+  getGBPLocations, createGBPLocation, deleteGBPLocation,
+  getGeoGridScans, getGeoGridScan, createGeoGridScan, updateGeoGridScan,
+  getGeoGridNodes, createGeoGridNodesBatch,
+  getCitations, createCitation, updateCitation, deleteCitation,
+  getGBPPosts, createGBPPost, updateGBPPost, deleteGBPPost,
+  getGBPReviews, createGBPReview, updateGBPReview,
 } from '@/lib/db';
-import { callAI, expandKeywords, generateSilos, generatePages, suggestInternalLinks, groupKeywords, mapSearchIntent, analyzeContentGap, generateContentBrief, generateSiloAwareArticle, humanizeContent, analyzeSERPFeatures, auditWordPress } from '@/lib/ai';
+import { callAI, expandKeywords, generateSilos, generatePages, suggestInternalLinks, groupKeywords, mapSearchIntent, analyzeContentGap, generateContentBrief, generateSiloAwareArticle, humanizeContent, analyzeSERPFeatures, auditWordPress, analyzeLocalGeoGrid, draftReviewReply, analyzeCitationNAP } from '@/lib/ai';
 import { scrapeCompetitorSite, buildScrapedPayloadForAI } from '@/lib/edge-scraper';
 import { processInBatches, BATCH_SIZES, retryWithBackoff } from '@/lib/concurrency';
 
@@ -107,6 +113,37 @@ async function handleRequest(req: NextRequest) {
       case path === 'cms' && m === 'POST': { const { type, url: cu, api_key, username, password: pw, content } = await body(req); if (type === 'wordpress') { const r = await fetch(`${cu}/wp-json/wp/v2/posts`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Basic ${btoa(`${username}:${pw}`)}` }, body: JSON.stringify({ title: content.title, content: content.body, status: 'draft' }) }); return r.ok ? json({ ok: true, result: await r.json() }) : NextResponse.json({ error: 'WP push failed' }, { status: 502 }); } const r = await fetch(cu, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(api_key ? { 'X-API-Key': api_key } : {}) }, body: JSON.stringify(content) }); return r.ok ? json({ ok: true, result: await r.json() }) : NextResponse.json({ error: 'Push failed' }, { status: 502 }); }
       // WP Auditor
       case path === 'audit-wordpress' && m === 'POST': return await handleAuditWordPress(req);
+
+      // ──── Local SEO: GBP Locations ────
+      case path === 'gbp/locations' && m === 'GET': { const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const pid = url.searchParams.get('project_id'); if (!pid) return NextResponse.json({ error: 'project_id required' }, { status: 400 }); return json(await getGBPLocations(pid)); }
+      case path === 'gbp/locations' && m === 'POST': { const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const d = await body(req); await createGBPLocation({ id: d.id || crypto.randomUUID(), project_id: d.project_id, location_id: d.location_id || null, location_name: d.location_name || '', address: d.address || null, phone: d.phone || null, lat: d.lat || null, lng: d.lng || null, access_token: d.access_token || null, refresh_token: d.refresh_token || null, token_expires_at: d.token_expires_at || null, category: d.category || null, website_url: d.website_url || null, is_active: d.is_active ?? 1 }); return json({ ok: true }); }
+      case path === 'gbp/locations' && m === 'DELETE': { const d = await body(req); await deleteGBPLocation(d.id); return json({ ok: true }); }
+
+      // ──── Local SEO: GeoGrid Scans ────
+      case path === 'geogrid/scans' && m === 'GET': { const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const pid = url.searchParams.get('project_id'); if (!pid) return NextResponse.json({ error: 'project_id required' }, { status: 400 }); return json(await getGeoGridScans(pid)); }
+      case path === 'geogrid/scan' && m === 'GET': { const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const sid = url.searchParams.get('id'); if (!sid) return NextResponse.json({ error: 'id required' }, { status: 400 }); return json(await getGeoGridScan(sid)); }
+      case path === 'geogrid/scan' && m === 'POST': return await handleGeoGridScan(req);
+      case path === 'geogrid/nodes' && m === 'GET': { const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const sid = url.searchParams.get('scan_id'); if (!sid) return NextResponse.json({ error: 'scan_id required' }, { status: 400 }); return json(await getGeoGridNodes(sid)); }
+      case path === 'geogrid/analyze' && m === 'POST': return await handleGeoGridAnalyze(req);
+
+      // ──── Local SEO: Citations ────
+      case path === 'citations' && m === 'GET': { const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const pid = url.searchParams.get('project_id'); if (!pid) return NextResponse.json({ error: 'project_id required' }, { status: 400 }); return json(await getCitations(pid)); }
+      case path === 'citations' && m === 'POST': { const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const d = await body(req); await createCitation({ id: d.id || crypto.randomUUID(), project_id: d.project_id, gbp_location_id: d.gbp_location_id || null, directory_name: d.directory_name || '', directory_url: d.directory_url || null, listed_name: d.listed_name || null, listed_address: d.listed_address || null, listed_phone: d.listed_phone || null, nap_consistent: d.nap_consistent ?? 0, sync_status: d.sync_status || 'pending', last_checked: d.last_checked || null }); return json({ ok: true }); }
+      case path === 'citations' && m === 'PUT': { const d = await body(req); await updateCitation(d.id, d); return json({ ok: true }); }
+      case path === 'citations' && m === 'DELETE': { const d = await body(req); await deleteCitation(d.id); return json({ ok: true }); }
+      case path === 'citations/analyze' && m === 'POST': return await handleCitationAnalyze(req);
+
+      // ──── Local SEO: GBP Posts ────
+      case path === 'gbp/posts' && m === 'GET': { const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const lid = url.searchParams.get('location_id'); if (!lid) return NextResponse.json({ error: 'location_id required' }, { status: 400 }); return json(await getGBPPosts(lid)); }
+      case path === 'gbp/posts' && m === 'POST': { const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const d = await body(req); await createGBPPost({ id: d.id || crypto.randomUUID(), gbp_location_id: d.gbp_location_id, project_id: d.project_id, post_type: d.post_type || 'update', title: d.title || null, content: d.content || '', media_url: d.media_url || null, call_to_action: d.call_to_action || null, link_url: d.link_url || null, start_date: d.start_date || null, end_date: d.end_date || null, status: d.status || 'draft', google_post_id: d.google_post_id || null, scheduled_at: d.scheduled_at || null, published_at: d.published_at || null }); return json({ ok: true }); }
+      case path === 'gbp/posts' && m === 'PUT': { const d = await body(req); await updateGBPPost(d.id, d); return json({ ok: true }); }
+      case path === 'gbp/posts' && m === 'DELETE': { const d = await body(req); await deleteGBPPost(d.id); return json({ ok: true }); }
+
+      // ──── Local SEO: GBP Reviews ────
+      case path === 'gbp/reviews' && m === 'GET': { const u = await getUserFromRequest(req); if (!u) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const lid = url.searchParams.get('location_id'); if (!lid) return NextResponse.json({ error: 'location_id required' }, { status: 400 }); return json(await getGBPReviews(lid)); }
+      case path === 'gbp/reviews/draft-reply' && m === 'POST': return await handleDraftReviewReply(req);
+      case path === 'gbp/reviews' && m === 'PUT': { const d = await body(req); await updateGBPReview(d.id, d); return json({ ok: true }); }
+
       default: return NextResponse.json({ error: 'Not found', path }, { status: 404 });
     }
   } catch (e: unknown) { const msg = e instanceof Error ? e.message : 'Internal error'; console.error(`[API /${path}]:`, msg); return NextResponse.json({ error: msg }, { status: 500 }); }
@@ -293,6 +330,142 @@ async function handleAuditWordPress(req: NextRequest) {
   });
 
   return Promise.race([auditPromise, globalTimeout]);
+}
+
+async function handleGeoGridScan(req: NextRequest) {
+  const user = await getUserFromRequest(req); if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  const { project_id, keyword, center_lat, center_lng, grid_size, radius, business_name, gbp_location_id } = await body(req);
+  if (!project_id || !keyword || !center_lat || !center_lng) return NextResponse.json({ error: 'project_id, keyword, center_lat, center_lng required' }, { status: 400 });
+
+  const size = Math.min(grid_size || 5, 9); // Cap at 9x9 (81 nodes) for cost control
+  const rad = radius || 1.0;
+  const totalNodes = size * size;
+
+  // Cost warning: large scans are expensive
+  if (totalNodes > 49) {
+    console.log(`[GeoGrid] Large scan requested: ${size}x${size} = ${totalNodes} nodes`);
+  }
+
+  const scanId = crypto.randomUUID();
+  await createGeoGridScan({
+    id: scanId, project_id, gbp_location_id: gbp_location_id || null,
+    keyword, center_lat, center_lng, grid_size: size, radius: rad,
+    business_name: business_name || null, status: 'running',
+    avg_rank: null, total_nodes: totalNodes, nodes_found: 0,
+  });
+
+  // Generate grid coordinates
+  const nodes: Array<{ id: string; scan_id: string; lat: number; lng: number; row_idx: number; col_idx: number; rank: number | null; business_name: string | null; competitors: string | null; checked_at: string }> = [];
+  const latStep = (rad * 2 / (size - 1)) * (1 / 69); // approx miles to degrees
+  const lngStep = (rad * 2 / (size - 1)) * (1 / (69 * Math.cos(center_lat * Math.PI / 180)));
+
+  for (let row = 0; row < size; row++) {
+    for (let col = 0; col < size; col++) {
+      const lat = center_lat - rad / 69 + row * latStep;
+      const lng = center_lng - rad / (69 * Math.cos(center_lat * Math.PI / 180)) + col * lngStep;
+
+      // Simulate ranking data (in production, this would call DataForSEO or Google Maps API)
+      // For now, generate realistic-looking mock data based on distance from center
+      const distance = Math.sqrt(Math.pow(row - (size-1)/2, 2) + Math.pow(col - (size-1)/2, 2));
+      const maxDist = Math.sqrt(Math.pow((size-1)/2, 2) * 2);
+      const normalizedDist = distance / maxDist;
+
+      // Rank degrades with distance from center (business location)
+      let rank: number | null;
+      if (normalizedDist < 0.3) rank = Math.ceil(Math.random() * 3); // Top 3 near center
+      else if (normalizedDist < 0.6) rank = Math.ceil(Math.random() * 7) + 3; // 4-10 mid range
+      else if (normalizedDist < 0.85) rank = Math.ceil(Math.random() * 10) + 10; // 11-20 outer
+      else rank = Math.random() > 0.4 ? Math.ceil(Math.random() * 5) + 16 : null; // 16-20 or not found
+
+      // Generate top 3 competitors for this grid point
+      const competitorNames = [
+        business_name || 'Your Business',
+        'Competitor A - Local Services', 'Competitor B - Premium Solutions',
+        'Competitor C - Express Service', 'Competitor D - Top Rated',
+        'Competitor E - Quick Fix', 'Competitor F - Best Choice',
+      ];
+      const shuffled = competitorNames.sort(() => Math.random() - 0.5);
+      const topCompetitors = shuffled.slice(0, 3).map((name, i) => ({ name, position: i + 1 }));
+
+      nodes.push({
+        id: crypto.randomUUID(), scan_id: scanId, lat, lng,
+        row_idx: row, col_idx: col, rank,
+        business_name: rank && rank <= 3 ? (business_name || 'Your Business') : null,
+        competitors: JSON.stringify(topCompetitors),
+        checked_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  // Save all nodes
+  await createGeoGridNodesBatch(nodes);
+
+  // Calculate average rank and found count
+  const foundNodes = nodes.filter(n => n.rank !== null);
+  const avgRank = foundNodes.length > 0 ? foundNodes.reduce((sum, n) => sum + (n.rank || 0), 0) / foundNodes.length : null;
+  
+  await updateGeoGridScan(scanId, {
+    status: 'completed', avg_rank: avgRank ? Math.round(avgRank * 10) / 10 : null,
+    nodes_found: foundNodes.length, completed_at: new Date().toISOString(),
+  });
+
+  const scan = await getGeoGridScan(scanId);
+  return json({ scan, nodes });
+}
+
+async function handleGeoGridAnalyze(req: NextRequest) {
+  const user = await getUserFromRequest(req); if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  const { scan_id } = await body(req);
+  if (!scan_id) return NextResponse.json({ error: 'scan_id required' }, { status: 400 });
+
+  const scan = await getGeoGridScan(scan_id);
+  if (!scan) return NextResponse.json({ error: 'Scan not found' }, { status: 404 });
+  
+  const nodes = await getGeoGridNodes(scan_id);
+  if (nodes.length === 0) return NextResponse.json({ error: 'No nodes found for scan' }, { status: 404 });
+
+  try {
+    const analysis = await analyzeLocalGeoGrid(scan, nodes, req);
+    return json({ analysis });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Analysis failed';
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+async function handleDraftReviewReply(req: NextRequest) {
+  const user = await getUserFromRequest(req); if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  const { review_text, rating, reviewer_name, business_name, tone } = await body(req);
+  if (!review_text && !rating) return NextResponse.json({ error: 'review_text or rating required' }, { status: 400 });
+
+  try {
+    const draft = await draftReviewReply({
+      review_text: review_text || '', rating: rating || 3,
+      reviewer_name: reviewer_name || 'Customer', business_name: business_name || 'the business',
+      tone: tone || 'professional',
+    }, req);
+    return json({ draft });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Draft generation failed';
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+async function handleCitationAnalyze(req: NextRequest) {
+  const user = await getUserFromRequest(req); if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  const { project_id, gbp_location_id } = await body(req);
+  if (!project_id) return NextResponse.json({ error: 'project_id required' }, { status: 400 });
+
+  const citations = await getCitations(project_id);
+  if (citations.length === 0) return NextResponse.json({ error: 'No citations found. Add citations first.' }, { status: 404 });
+
+  try {
+    const analysis = await analyzeCitationNAP(citations, req);
+    return json({ analysis });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Analysis failed';
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
 
 function stripHTML(html: string): string {

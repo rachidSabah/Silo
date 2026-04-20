@@ -8,6 +8,7 @@ import {
   BarChart3, Calendar, FileText, Network, Link2, Brain, PenTool,
   Globe, TrendingUp, FileDown, Save, Loader2, Cloud, CloudOff,
   FolderOpen, ChevronDown, Pencil, Sparkles, Target, GitCompare,
+  MapPin, MessageSquare, Search, FileCheck, GitCompareArrows,
 } from 'lucide-react';
 
 const workflowSteps = [
@@ -33,6 +34,14 @@ const toolSteps = [
   { num: 16, label: 'SERP Tracker', icon: Target, color: 'cyan' },
   { num: 17, label: 'Content Gaps', icon: GitCompare, color: 'orange' },
   { num: 18, label: 'WP Auditor', icon: Globe, color: 'emerald' },
+];
+
+const localSEOSteps = [
+  { num: 19, label: 'GeoGrid Tracker', icon: MapPin, color: 'rose' },
+  { num: 20, label: 'GBP Manager', icon: MessageSquare, color: 'blue' },
+  { num: 21, label: 'Scan Analyzer', icon: Search, color: 'amber' },
+  { num: 22, label: 'Citation Radar', icon: FileCheck, color: 'emerald' },
+  { num: 23, label: 'Competitor Compare', icon: GitCompareArrows, color: 'purple' },
 ];
 
 export default function Sidebar() {
@@ -134,6 +143,11 @@ export default function Sidebar() {
     if (step === 16) return !!project; // SERP Tracker
     if (step === 17) return !!project && pages.length > 0; // Content Gaps
     if (step === 18) return true; // WP Auditor (always accessible)
+    if (step === 19) return !!project; // GeoGrid Tracker
+    if (step === 20) return !!project; // GBP Manager
+    if (step === 21) return !!project; // Scan Analyzer
+    if (step === 22) return !!project; // Citation Radar
+    if (step === 23) return !!project; // Competitor Compare
     if (step === 99) return true;
     return false;
   };
@@ -334,7 +348,41 @@ export default function Sidebar() {
               pink: { activeBg: 'bg-pink-500/15', activeText: 'text-pink-300', activeBorder: 'border-pink-500/30' },
               cyan: { activeBg: 'bg-cyan-500/15', activeText: 'text-cyan-300', activeBorder: 'border-cyan-500/30' },
               orange: { activeBg: 'bg-orange-500/15', activeText: 'text-orange-300', activeBorder: 'border-orange-500/30' },
+              rose: { activeBg: 'bg-rose-500/15', activeText: 'text-rose-300', activeBorder: 'border-rose-500/30' },
             };const color = colorMap[step.color] || colorMap.emerald;
+
+            return (
+              <button
+                key={step.num}
+                onClick={() => handleStepClick(step.num)}
+                disabled={!isAccessible}
+                className={`w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2.5 md:py-3 rounded-xl text-left transition-all duration-200 ${
+                  isActive
+                    ? `${color.activeBg} ${color.activeText} border ${color.activeBorder}`
+                    : isAccessible
+                    ? 'text-slate-400 hover:bg-slate-800 hover:text-slate-300 border border-transparent'
+                    : 'text-slate-600 cursor-not-allowed border border-transparent'
+                }`}
+              >
+                <div className={`w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  isActive ? 'bg-slate-700 text-white' : 'bg-slate-700/50 text-slate-500'
+                }`}>
+                  <IconComponent size={14} />
+                </div>
+                <span className="text-xs md:text-sm font-medium">{step.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Local SEO Section */}
+        <div className="pt-4 mt-4 border-t border-slate-700/50">
+          <p className="text-[10px] text-slate-600 uppercase tracking-wider px-3 md:px-4 mb-2">📍 Local SEO</p>
+          {localSEOSteps.map((step) => {
+            const isActive = currentStep === step.num;
+            const isAccessible = isStepAccessible(step.num);
+            const IconComponent = step.icon;
+            const color = colorMap[step.color] || colorMap.emerald;
 
             return (
               <button

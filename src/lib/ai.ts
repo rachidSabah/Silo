@@ -1934,3 +1934,209 @@ Return the JSON array with SERP feature analysis for each keyword.`,
     }));
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOCAL SEO AI FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface LocalGeoGridAnalysis {
+  overall_assessment: string;
+  avg_rank: number | null;
+  visibility_score: number; // 0-100
+  quadrants: {
+    northwest: { avg_rank: number | null; assessment: string };
+    northeast: { avg_rank: number | null; assessment: string };
+    southwest: { avg_rank: number | null; assessment: string };
+    southeast: { avg_rank: number | null; assessment: string };
+  };
+  action_plan: Array<{
+    priority: 'high' | 'medium' | 'low';
+    action: string;
+    details: string;
+  }>;
+  gbp_optimizations: string[];
+  content_suggestions: string[];
+}
+
+export async function analyzeLocalGeoGrid(
+  scan: { keyword: string; center_lat: number; center_lng: number; grid_size: number; radius: number; business_name: string | null; avg_rank: number | null; total_nodes: number | null; nodes_found: number | null },
+  nodes: Array<{ lat: number; lng: number; row_idx: number; col_idx: number; rank: number | null; competitors: string | null }>,
+  req?: NextRequest,
+): Promise<LocalGeoGridAnalysis> {
+  const safeKeyword = scan.keyword || 'local service';
+  const safeBusiness = scan.business_name || 'the business';
+  const gridSize = scan.grid_size || 5;
+  const mid = Math.floor(gridSize / 2);
+
+  // Compute quadrant averages
+  const quadrants = { northwest: [] as number[], northeast: [] as number[], southwest: [] as number[], southeast: [] as number[] };
+  for (const node of nodes) {
+    if (node.rank === null) continue;
+    const q = node.row_idx < mid
+      ? (node.col_idx < mid ? 'northwest' : 'northeast')
+      : (node.col_idx < mid ? 'southwest' : 'southeast');
+    quadrants[q].push(node.rank);
+  }
+
+  const qAvg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length * 10) / 10 : null;
+
+  const quadrantData = {
+    northwest: { avg_rank: qAvg(quadrants.northwest), assessment: '' },
+    northeast: { avg_rank: qAvg(quadrants.northeast), assessment: '' },
+    southwest: { avg_rank: qAvg(quadrants.southwest), assessment: '' },
+    southeast: { avg_rank: qAvg(quadrants.southeast), assessment: '' },
+  };
+
+  // Calculate visibility score (percentage of nodes where rank <= 10)
+  const totalNodes = nodes.length || 1;
+  const visibleNodes = nodes.filter(n => n.rank !== null && n.rank <= 10).length;
+  const visibilityScore = Math.round((visibleNodes / totalNodes) * 100);
+
+  const nodesJSON = JSON.stringify(nodes.slice(0, 50).map(n => ({
+    r: n.row_idx, c: n.col_idx, rank: n.rank,
+    top3: n.competitors ? JSON.parse(n.competitors).slice(0, 3).map((c: any) => c.name) : [],
+  })));
+
+  const systemPrompt = `You are a Local SEO Expert specializing in Google Maps ranking analysis. Analyze the GeoGrid scan data and provide a strict JSON action plan.
+
+The business "${safeBusiness}" was scanned for keyword "${safeKeyword}" on a ${gridSize}x${gridSize} grid with ${scan.radius} mile radius.
+
+Quadrant averages:
+- NW: rank ${quadrantData.northwest.avg_rank || 'N/A'}
+- NE: rank ${quadrantData.northeast.avg_rank || 'N/A'}
+- SW: rank ${quadrantData.southwest.avg_rank || 'N/A'}
+- SE: rank ${quadrantData.southeast.avg_rank || 'N/A'}
+
+Overall avg rank: ${scan.avg_rank || 'N/A'}, Visibility: ${visibilityScore}%
+
+Grid data (row, col, rank, top 3 competitors):
+${nodesJSON}
+
+Return ONLY a JSON object with these exact keys:
+1. "overall_assessment": string (2-3 sentences summarizing the local ranking situation)
+2. "quadrant_assessments": { "northwest": string, "northeast": string, "southwest": string, "southeast": string } (1 sentence each)
+3. "action_plan": array of { "priority": "high"|"medium"|"low", "action": string, "details": string } (5-8 items)
+4. "gbp_optimizations": array of strings (4-6 specific GBP optimization tips)
+5. "content_suggestions": array of strings (3-5 local content ideas)
+
+Rules:
+- Focus on LOCAL SEO factors: proximity, relevance, prominence
+- Suggest specific GBP description keywords, review strategies, and local content
+- Identify which quadrants need the most attention and why
+- Mention competitor threats by name when they appear in top 3
+- ONLY JSON, no markdown.`;
+
+  const content = await callAI([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: `Analyze the GeoGrid scan for "${safeBusiness}" targeting "${safeKeyword}". Provide the action plan as JSON.` },
+  ], req);
+
+  try {
+    const cleaned = cleanAIResponse(content);
+    const parsed = JSON.parse(cleaned);
+    return {
+      overall_assessment: parsed.overall_assessment || '',
+      avg_rank: scan.avg_rank,
+      visibility_score: visibilityScore,
+      quadrants: {
+        northwest: { avg_rank: quadrantData.northwest.avg_rank, assessment: parsed.quadrant_assessments?.northwest || '' },
+        northeast: { avg_rank: quadrantData.northeast.avg_rank, assessment: parsed.quadrant_assessments?.northeast || '' },
+        southwest: { avg_rank: quadrantData.southwest.avg_rank, assessment: parsed.quadrant_assessments?.southwest || '' },
+        southeast: { avg_rank: quadrantData.southeast.avg_rank, assessment: parsed.quadrant_assessments?.southeast || '' },
+      },
+      action_plan: Array.isArray(parsed.action_plan) ? parsed.action_plan.map((a: any) => ({
+        priority: ['high', 'medium', 'low'].includes(a.priority) ? a.priority : 'medium',
+        action: String(a.action || ''),
+        details: String(a.details || ''),
+      })) : [],
+      gbp_optimizations: Array.isArray(parsed.gbp_optimizations) ? parsed.gbp_optimizations.map(String) : [],
+      content_suggestions: Array.isArray(parsed.content_suggestions) ? parsed.content_suggestions.map(String) : [],
+    };
+  } catch {
+    return {
+      overall_assessment: `Scan completed for "${safeBusiness}" targeting "${safeKeyword}". Average rank: ${scan.avg_rank || 'N/A'}, Visibility: ${visibilityScore}%.`,
+      avg_rank: scan.avg_rank,
+      visibility_score: visibilityScore,
+      quadrants: quadrantData,
+      action_plan: [],
+      gbp_optimizations: [],
+      content_suggestions: [],
+    };
+  }
+}
+
+export async function draftReviewReply(
+  data: { review_text: string; rating: number; reviewer_name: string; business_name: string; tone: string },
+  req?: NextRequest,
+): Promise<string> {
+  const { review_text, rating, reviewer_name, business_name, tone } = data;
+  const toneMap: Record<string, string> = {
+    professional: 'professional and courteous',
+    friendly: 'warm and friendly',
+    empathetic: 'empathetic and understanding',
+    concise: 'brief and to the point',
+  };
+  const safeTone = toneMap[tone] || toneMap.professional;
+
+  const content = await callAI([
+    { role: 'system', content: `You are a ${safeTone} customer service representative for "${business_name}". Draft a reply to a Google review.
+
+Rules:
+- ${rating >= 4 ? 'Thank the reviewer warmly for their positive feedback.' : rating >= 3 ? 'Acknowledge the feedback professionally and address concerns.' : 'Apologize sincerely, acknowledge the issue, and offer to make it right.'}
+- Keep it 2-4 sentences.
+- ${review_text ? `Reference specific details from their review when possible.` : 'Keep it general but personalized in tone.'}
+- Do NOT use generic templates — make it feel authentic.
+- End with an invitation to return or contact directly.
+- Return ONLY the reply text, no JSON, no quotes, no labels.` },
+    { role: 'user', content: `${reviewer_name} left a ${rating}-star review${review_text ? `: "${review_text}"` : ' (no text, just a star rating).'}` },
+  ], req);
+
+  return content.trim();
+}
+
+export async function analyzeCitationNAP(
+  citations: Array<{ directory_name: string; listed_name: string | null; listed_address: string | null; listed_phone: string | null; nap_consistent: number; sync_status: string }>,
+  req?: NextRequest,
+): Promise<{ consistency_score: number; issues: Array<{ directory: string; field: string; expected: string; found: string }>; recommendations: string[] }> {
+  if (citations.length === 0) {
+    return { consistency_score: 0, issues: [], recommendations: [] };
+  }
+
+  const citationsJSON = JSON.stringify(citations.map(c => ({
+    directory: c.directory_name,
+    name: c.listed_name,
+    address: c.listed_address,
+    phone: c.listed_phone,
+    consistent: c.nap_consistent === 1,
+    status: c.sync_status,
+  })));
+
+  const content = await callAI([
+    { role: 'system', content: `You are a Local SEO expert specializing in NAP (Name, Address, Phone) consistency analysis. Analyze the citation data and identify inconsistencies.
+
+Return ONLY a JSON object with:
+1. "consistency_score": number 0-100 (percentage of consistent listings)
+2. "issues": array of { "directory": string, "field": "name"|"address"|"phone", "expected": string, "found": string }
+3. "recommendations": array of strings (3-5 actionable steps to fix NAP inconsistencies)
+
+ONLY JSON, no markdown.` },
+    { role: 'user', content: `Analyze these citations for NAP consistency:\n${citationsJSON}` },
+  ], req);
+
+  try {
+    const cleaned = cleanAIResponse(content);
+    const parsed = JSON.parse(cleaned);
+    return {
+      consistency_score: typeof parsed.consistency_score === 'number' ? parsed.consistency_score : 0,
+      issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+      recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations.map(String) : [],
+    };
+  } catch {
+    const consistent = citations.filter(c => c.nap_consistent === 1).length;
+    return {
+      consistency_score: Math.round((consistent / citations.length) * 100),
+      issues: [],
+      recommendations: [],
+    };
+  }
+}

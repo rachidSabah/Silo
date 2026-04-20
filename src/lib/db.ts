@@ -133,6 +133,17 @@ async function runMigrations(db: D1Database) {
   try {
     await db.prepare('ALTER TABLE ai_settings ADD COLUMN base_url TEXT NOT NULL DEFAULT \'\'').run();
   } catch { /* already exists */ }
+  // Local SEO tables
+  try { await db.prepare(`CREATE TABLE IF NOT EXISTS gbp_locations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, location_id TEXT, location_name TEXT NOT NULL, address TEXT, phone TEXT, lat REAL, lng REAL, access_token TEXT, refresh_token TEXT, token_expires_at TEXT, category TEXT, website_url TEXT, is_active INTEGER DEFAULT 1, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`).run(); } catch {}
+  try { await db.prepare(`CREATE TABLE IF NOT EXISTS geogrid_scans (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, gbp_location_id TEXT, keyword TEXT NOT NULL, center_lat REAL NOT NULL, center_lng REAL NOT NULL, grid_size INTEGER DEFAULT 5, radius REAL DEFAULT 1.0, business_name TEXT, status TEXT DEFAULT 'pending', avg_rank REAL, total_nodes INTEGER, nodes_found INTEGER, created_at TEXT DEFAULT (datetime('now')), completed_at TEXT)`).run(); } catch {}
+  try { await db.prepare(`CREATE TABLE IF NOT EXISTS geogrid_nodes (id TEXT PRIMARY KEY, scan_id TEXT NOT NULL, lat REAL NOT NULL, lng REAL NOT NULL, row_idx INTEGER NOT NULL, col_idx INTEGER NOT NULL, rank INTEGER, business_name TEXT, competitors TEXT, checked_at TEXT DEFAULT (datetime('now')))`).run(); } catch {}
+  try { await db.prepare(`CREATE TABLE IF NOT EXISTS citations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, gbp_location_id TEXT, directory_name TEXT NOT NULL, directory_url TEXT, listed_name TEXT, listed_address TEXT, listed_phone TEXT, nap_consistent INTEGER DEFAULT 0, sync_status TEXT DEFAULT 'pending', last_checked TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`).run(); } catch {}
+  try { await db.prepare(`CREATE TABLE IF NOT EXISTS gbp_posts (id TEXT PRIMARY KEY, gbp_location_id TEXT NOT NULL, project_id TEXT NOT NULL, post_type TEXT DEFAULT 'offer', title TEXT, content TEXT NOT NULL, media_url TEXT, call_to_action TEXT, link_url TEXT, start_date TEXT, end_date TEXT, status TEXT DEFAULT 'draft', google_post_id TEXT, scheduled_at TEXT, published_at TEXT, created_at TEXT DEFAULT (datetime('now')))`).run(); } catch {}
+  try { await db.prepare(`CREATE TABLE IF NOT EXISTS gbp_reviews (id TEXT PRIMARY KEY, gbp_location_id TEXT NOT NULL, project_id TEXT NOT NULL, google_review_id TEXT, reviewer_name TEXT, rating INTEGER, review_text TEXT, review_date TEXT, reply_text TEXT, ai_draft_reply TEXT, reply_status TEXT DEFAULT 'pending', replied_at TEXT, created_at TEXT DEFAULT (datetime('now')))`).run(); } catch {}
+  try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_gbp_locations_project ON gbp_locations(project_id)').run(); } catch {}
+  try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_geogrid_scans_project ON geogrid_scans(project_id)').run(); } catch {}
+  try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_geogrid_nodes_scan ON geogrid_nodes(scan_id)').run(); } catch {}
+  try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_citations_project ON citations(project_id)').run(); } catch {}
 }
 
 // ===== Projects =====
@@ -754,4 +765,368 @@ export async function setActiveAISetting(id: string, userId: string) {
   memSettings.forEach((s) => { if (s.user_id === userId) s.is_active = 0; });
   const setting = memSettings.find((s) => s.id === id);
   if (setting) setting.is_active = 1;
+}
+
+// ===== Local SEO: Interfaces =====
+
+interface GBPLocationRecord {
+  id: string;
+  project_id: string;
+  location_id: string | null;
+  location_name: string;
+  address: string | null;
+  phone: string | null;
+  lat: number | null;
+  lng: number | null;
+  access_token: string | null;
+  refresh_token: string | null;
+  token_expires_at: string | null;
+  category: string | null;
+  website_url: string | null;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface GeoGridScanRecord {
+  id: string;
+  project_id: string;
+  gbp_location_id: string | null;
+  keyword: string;
+  center_lat: number;
+  center_lng: number;
+  grid_size: number;
+  radius: number;
+  business_name: string | null;
+  status: string;
+  avg_rank: number | null;
+  total_nodes: number | null;
+  nodes_found: number | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+interface GeoGridNodeRecord {
+  id: string;
+  scan_id: string;
+  lat: number;
+  lng: number;
+  row_idx: number;
+  col_idx: number;
+  rank: number | null;
+  business_name: string | null;
+  competitors: string | null;
+  checked_at: string;
+}
+
+interface CitationRecord {
+  id: string;
+  project_id: string;
+  gbp_location_id: string | null;
+  directory_name: string;
+  directory_url: string | null;
+  listed_name: string | null;
+  listed_address: string | null;
+  listed_phone: string | null;
+  nap_consistent: number;
+  sync_status: string;
+  last_checked: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface GBPPostRecord {
+  id: string;
+  gbp_location_id: string;
+  project_id: string;
+  post_type: string;
+  title: string | null;
+  content: string;
+  media_url: string | null;
+  call_to_action: string | null;
+  link_url: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  status: string;
+  google_post_id: string | null;
+  scheduled_at: string | null;
+  published_at: string | null;
+  created_at: string;
+}
+
+interface GBPReviewRecord {
+  id: string;
+  gbp_location_id: string;
+  project_id: string;
+  google_review_id: string | null;
+  reviewer_name: string | null;
+  rating: number | null;
+  review_text: string | null;
+  review_date: string | null;
+  reply_text: string | null;
+  ai_draft_reply: string | null;
+  reply_status: string;
+  replied_at: string | null;
+  created_at: string;
+}
+
+// ===== Local SEO: In-memory arrays (dev mode) =====
+
+const memGBPLocations: GBPLocationRecord[] = [];
+const memGeoGridScans: GeoGridScanRecord[] = [];
+const memGeoGridNodes: GeoGridNodeRecord[] = [];
+const memCitations: CitationRecord[] = [];
+const memGBPPosts: GBPPostRecord[] = [];
+const memGBPReviews: GBPReviewRecord[] = [];
+
+// ===== GBP Locations =====
+
+export async function getGBPLocations(projectId: string): Promise<GBPLocationRecord[]> {
+  if (isCloudflare()) {
+    const db = getD1();
+    const { results } = await db.prepare('SELECT * FROM gbp_locations WHERE project_id = ? ORDER BY created_at DESC').bind(projectId).all();
+    return results as GBPLocationRecord[];
+  }
+  return memGBPLocations.filter(l => l.project_id === projectId);
+}
+
+export async function createGBPLocation(data: Omit<GBPLocationRecord, 'created_at' | 'updated_at'>): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    await ensureMigration(db);
+    await db.prepare('INSERT INTO gbp_locations (id, project_id, location_id, location_name, address, phone, lat, lng, access_token, refresh_token, token_expires_at, category, website_url, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(data.id, data.project_id, data.location_id, data.location_name, data.address, data.phone, data.lat, data.lng, data.access_token, data.refresh_token, data.token_expires_at, data.category, data.website_url, data.is_active).run();
+    return;
+  }
+  memGBPLocations.push({ ...data, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+}
+
+export async function deleteGBPLocation(id: string): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    await db.prepare('DELETE FROM gbp_locations WHERE id = ?').bind(id).run();
+    return;
+  }
+  const idx = memGBPLocations.findIndex(l => l.id === id);
+  if (idx !== -1) memGBPLocations.splice(idx, 1);
+}
+
+// ===== GeoGrid Scans =====
+
+export async function getGeoGridScans(projectId: string): Promise<GeoGridScanRecord[]> {
+  if (isCloudflare()) {
+    const db = getD1();
+    const { results } = await db.prepare('SELECT * FROM geogrid_scans WHERE project_id = ? ORDER BY created_at DESC').bind(projectId).all();
+    return results as GeoGridScanRecord[];
+  }
+  return memGeoGridScans.filter(s => s.project_id === projectId);
+}
+
+export async function getGeoGridScan(id: string): Promise<GeoGridScanRecord | null> {
+  if (isCloudflare()) {
+    const db = getD1();
+    return db.prepare('SELECT * FROM geogrid_scans WHERE id = ?').bind(id).first() as Promise<GeoGridScanRecord | null>;
+  }
+  return memGeoGridScans.find(s => s.id === id) || null;
+}
+
+export async function createGeoGridScan(data: Omit<GeoGridScanRecord, 'created_at' | 'completed_at'>): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    await ensureMigration(db);
+    await db.prepare('INSERT INTO geogrid_scans (id, project_id, gbp_location_id, keyword, center_lat, center_lng, grid_size, radius, business_name, status, avg_rank, total_nodes, nodes_found) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(data.id, data.project_id, data.gbp_location_id, data.keyword, data.center_lat, data.center_lng, data.grid_size, data.radius, data.business_name, data.status, data.avg_rank, data.total_nodes, data.nodes_found).run();
+    return;
+  }
+  memGeoGridScans.push({ ...data, created_at: new Date().toISOString(), completed_at: null });
+}
+
+export async function updateGeoGridScan(id: string, data: Partial<GeoGridScanRecord>): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    for (const [k, v] of Object.entries(data)) {
+      sets.push(`${k} = ?`);
+      vals.push(v);
+    }
+    if (sets.length === 0) return;
+    vals.push(id);
+    await db.prepare(`UPDATE geogrid_scans SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+    return;
+  }
+  const idx = memGeoGridScans.findIndex(s => s.id === id);
+  if (idx !== -1) Object.assign(memGeoGridScans[idx], data);
+}
+
+// ===== GeoGrid Nodes =====
+
+export async function getGeoGridNodes(scanId: string): Promise<GeoGridNodeRecord[]> {
+  if (isCloudflare()) {
+    const db = getD1();
+    const { results } = await db.prepare('SELECT * FROM geogrid_nodes WHERE scan_id = ? ORDER BY row_idx, col_idx').bind(scanId).all();
+    return results as GeoGridNodeRecord[];
+  }
+  return memGeoGridNodes.filter(n => n.scan_id === scanId);
+}
+
+export async function createGeoGridNode(data: GeoGridNodeRecord): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    await db.prepare('INSERT INTO geogrid_nodes (id, scan_id, lat, lng, row_idx, col_idx, rank, business_name, competitors, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(data.id, data.scan_id, data.lat, data.lng, data.row_idx, data.col_idx, data.rank, data.business_name, data.competitors, data.checked_at).run();
+    return;
+  }
+  memGeoGridNodes.push(data);
+}
+
+export async function createGeoGridNodesBatch(nodes: GeoGridNodeRecord[]): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    const stmt = db.prepare('INSERT INTO geogrid_nodes (id, scan_id, lat, lng, row_idx, col_idx, rank, business_name, competitors, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const batch = nodes.map(n => stmt.bind(n.id, n.scan_id, n.lat, n.lng, n.row_idx, n.col_idx, n.rank, n.business_name, n.competitors, n.checked_at));
+    await db.batch(batch);
+    return;
+  }
+  memGeoGridNodes.push(...nodes);
+}
+
+// ===== Citations =====
+
+export async function getCitations(projectId: string): Promise<CitationRecord[]> {
+  if (isCloudflare()) {
+    const db = getD1();
+    const { results } = await db.prepare('SELECT * FROM citations WHERE project_id = ? ORDER BY created_at DESC').bind(projectId).all();
+    return results as CitationRecord[];
+  }
+  return memCitations.filter(c => c.project_id === projectId);
+}
+
+export async function createCitation(data: Omit<CitationRecord, 'created_at' | 'updated_at'>): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    await ensureMigration(db);
+    await db.prepare('INSERT INTO citations (id, project_id, gbp_location_id, directory_name, directory_url, listed_name, listed_address, listed_phone, nap_consistent, sync_status, last_checked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(data.id, data.project_id, data.gbp_location_id, data.directory_name, data.directory_url, data.listed_name, data.listed_address, data.listed_phone, data.nap_consistent, data.sync_status, data.last_checked).run();
+    return;
+  }
+  memCitations.push({ ...data, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+}
+
+export async function updateCitation(id: string, data: Partial<CitationRecord>): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    for (const [k, v] of Object.entries(data)) {
+      sets.push(`${k} = ?`);
+      vals.push(v);
+    }
+    if (sets.length === 0) return;
+    vals.push(id);
+    await db.prepare(`UPDATE citations SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+    return;
+  }
+  const idx = memCitations.findIndex(c => c.id === id);
+  if (idx !== -1) Object.assign(memCitations[idx], data);
+}
+
+export async function deleteCitation(id: string): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    await db.prepare('DELETE FROM citations WHERE id = ?').bind(id).run();
+    return;
+  }
+  const idx = memCitations.findIndex(c => c.id === id);
+  if (idx !== -1) memCitations.splice(idx, 1);
+}
+
+// ===== GBP Posts =====
+
+export async function getGBPPosts(locationId: string): Promise<GBPPostRecord[]> {
+  if (isCloudflare()) {
+    const db = getD1();
+    const { results } = await db.prepare('SELECT * FROM gbp_posts WHERE gbp_location_id = ? ORDER BY created_at DESC').bind(locationId).all();
+    return results as GBPPostRecord[];
+  }
+  return memGBPPosts.filter(p => p.gbp_location_id === locationId);
+}
+
+export async function createGBPPost(data: Omit<GBPPostRecord, 'created_at'>): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    await ensureMigration(db);
+    await db.prepare('INSERT INTO gbp_posts (id, gbp_location_id, project_id, post_type, title, content, media_url, call_to_action, link_url, start_date, end_date, status, google_post_id, scheduled_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(data.id, data.gbp_location_id, data.project_id, data.post_type, data.title, data.content, data.media_url, data.call_to_action, data.link_url, data.start_date, data.end_date, data.status, data.google_post_id, data.scheduled_at, data.published_at).run();
+    return;
+  }
+  memGBPPosts.push({ ...data, created_at: new Date().toISOString() });
+}
+
+export async function updateGBPPost(id: string, data: Partial<GBPPostRecord>): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    for (const [k, v] of Object.entries(data)) {
+      sets.push(`${k} = ?`);
+      vals.push(v);
+    }
+    if (sets.length === 0) return;
+    vals.push(id);
+    await db.prepare(`UPDATE gbp_posts SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+    return;
+  }
+  const idx = memGBPPosts.findIndex(p => p.id === id);
+  if (idx !== -1) Object.assign(memGBPPosts[idx], data);
+}
+
+export async function deleteGBPPost(id: string): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    await db.prepare('DELETE FROM gbp_posts WHERE id = ?').bind(id).run();
+    return;
+  }
+  const idx = memGBPPosts.findIndex(p => p.id === id);
+  if (idx !== -1) memGBPPosts.splice(idx, 1);
+}
+
+// ===== GBP Reviews =====
+
+export async function getGBPReviews(locationId: string): Promise<GBPReviewRecord[]> {
+  if (isCloudflare()) {
+    const db = getD1();
+    const { results } = await db.prepare('SELECT * FROM gbp_reviews WHERE gbp_location_id = ? ORDER BY created_at DESC').bind(locationId).all();
+    return results as GBPReviewRecord[];
+  }
+  return memGBPReviews.filter(r => r.gbp_location_id === locationId);
+}
+
+export async function createGBPReview(data: Omit<GBPReviewRecord, 'created_at'>): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    await ensureMigration(db);
+    await db.prepare('INSERT INTO gbp_reviews (id, gbp_location_id, project_id, google_review_id, reviewer_name, rating, review_text, review_date, reply_text, ai_draft_reply, reply_status, replied_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(data.id, data.gbp_location_id, data.project_id, data.google_review_id, data.reviewer_name, data.rating, data.review_text, data.review_date, data.reply_text, data.ai_draft_reply, data.reply_status, data.replied_at).run();
+    return;
+  }
+  memGBPReviews.push({ ...data, created_at: new Date().toISOString() });
+}
+
+export async function updateGBPReview(id: string, data: Partial<GBPReviewRecord>): Promise<void> {
+  if (isCloudflare()) {
+    const db = getD1();
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    for (const [k, v] of Object.entries(data)) {
+      sets.push(`${k} = ?`);
+      vals.push(v);
+    }
+    if (sets.length === 0) return;
+    vals.push(id);
+    await db.prepare(`UPDATE gbp_reviews SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+    return;
+  }
+  const idx = memGBPReviews.findIndex(r => r.id === id);
+  if (idx !== -1) Object.assign(memGBPReviews[idx], data);
 }
